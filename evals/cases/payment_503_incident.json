@@ -1,0 +1,7 @@
+{
+  "name": "checkout api production 503 incident",
+  "incident_file": "app/data/sample_alerts/payment_503_incident.json",
+  "min_risk_score": 60,
+  "allowed_statuses": ["degraded", "major_incident"],
+  "required_actions": ["rollback", "dashboards"]
+}

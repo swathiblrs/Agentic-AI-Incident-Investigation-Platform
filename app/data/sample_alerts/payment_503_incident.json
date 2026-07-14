@@ -1,0 +1,28 @@
+{
+  "title": "Checkout API returning elevated 503 errors",
+  "domain": "production",
+  "severity": "high",
+  "source": "observability",
+  "service": "checkout-api",
+  "environment": "production",
+  "owner_team": "Payments SRE",
+  "description": "Checkout requests are failing after the latest deployment. Error rate is elevated and p95 latency increased.",
+  "logs": [
+    "2026-07-14T18:01:04Z checkout-api ERROR upstream payment-gateway timeout after 3000ms",
+    "2026-07-14T18:02:19Z checkout-api failed request status=503 route=/checkout",
+    "2026-07-14T18:03:10Z circuit breaker opened for payment-gateway"
+  ],
+  "metrics": {
+    "error_rate_percent": 12.8,
+    "p95_latency_ms": 2400,
+    "requests_per_minute": 18500
+  },
+  "events": [
+    {
+      "timestamp": "2026-07-14T17:55:00Z",
+      "event": "deployment.completed",
+      "version": "checkout-api@2026.07.14.3"
+    }
+  ],
+  "tags": ["503", "latency", "recent-deploy", "customer-impact"]
+}

@@ -8,6 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models.schemas import SecurityAlert
+from app.models.schemas import IncidentInput
+from app.services.generic_incident_graph import GenericIncidentGraph
 from app.services.investigation_graph import InvestigationGraph
 
 
@@ -15,28 +17,49 @@ def main() -> None:
     reports_dir = Path("evals/reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
     cases = [json.loads(path.read_text(encoding="utf-8")) for path in Path("evals/cases").glob("*.json")]
-    graph = InvestigationGraph()
+    security_graph = InvestigationGraph()
+    generic_graph = GenericIncidentGraph()
     results = []
 
     for case in cases:
-        alert = SecurityAlert.model_validate(
-            json.loads(Path(case["alert_file"]).read_text(encoding="utf-8"))
-        )
-        report = graph.investigate(alert)
-        actions = " ".join(action.action for action in report.recommended_actions)
-        passed = (
-            report.risk_score >= case["min_risk_score"]
-            and report.verdict.value in case["allowed_verdicts"]
-            and all(required in actions for required in case["required_actions"])
-        )
-        results.append(
-            {
-                "name": case["name"],
-                "passed": passed,
-                "risk_score": report.risk_score,
-                "verdict": report.verdict.value,
-            }
-        )
+        if "alert_file" in case:
+            alert = SecurityAlert.model_validate(
+                json.loads(Path(case["alert_file"]).read_text(encoding="utf-8"))
+            )
+            report = security_graph.investigate(alert)
+            actions = " ".join(action.action for action in report.recommended_actions)
+            passed = (
+                report.risk_score >= case["min_risk_score"]
+                and report.verdict.value in case["allowed_verdicts"]
+                and all(required in actions for required in case["required_actions"])
+            )
+            results.append(
+                {
+                    "name": case["name"],
+                    "passed": passed,
+                    "risk_score": report.risk_score,
+                    "verdict": report.verdict.value,
+                }
+            )
+        else:
+            incident = IncidentInput.model_validate(
+                json.loads(Path(case["incident_file"]).read_text(encoding="utf-8"))
+            )
+            report = generic_graph.investigate(incident)
+            actions = " ".join(action.action.lower() for action in report.recommended_actions)
+            passed = (
+                report.risk_score >= case["min_risk_score"]
+                and report.status.value in case["allowed_statuses"]
+                and all(required.lower() in actions for required in case["required_actions"])
+            )
+            results.append(
+                {
+                    "name": case["name"],
+                    "passed": passed,
+                    "risk_score": report.risk_score,
+                    "status": report.status.value,
+                }
+            )
 
     output = {
         "created_at": datetime.now(UTC).isoformat(),

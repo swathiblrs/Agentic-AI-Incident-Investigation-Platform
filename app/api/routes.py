@@ -13,16 +13,20 @@ from app.core.security import (
 )
 from app.models.schemas import (
     HealthResponse,
+    IncidentInvestigationRequest,
+    IncidentReport,
     InvestigationReport,
     InvestigationRequest,
     SecurityAlert,
     SessionMemoryResponse,
 )
+from app.services.generic_incident_graph import GenericIncidentGraph
 from app.services.investigation_graph import InvestigationGraph
 from app.services.session_memory import SessionMemory
 
 router = APIRouter()
 graph = InvestigationGraph()
+generic_graph = GenericIncidentGraph()
 memory = SessionMemory()
 
 
@@ -54,6 +58,26 @@ def investigate(
     if request.session_id:
         memory.append(request.session_id, "assistant", report.executive_summary)
     report.alert.tags = sorted(set(report.alert.tags + [f"analyst:{request.analyst_id or current_user.username}"]))
+    return report
+
+
+@router.post("/incidents/investigate", response_model=IncidentReport)
+def investigate_incident(
+    request: IncidentInvestigationRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> IncidentReport:
+    if request.session_id:
+        memory.append(request.session_id, "user", request.incident.model_dump_json())
+    report = generic_graph.investigate(request.incident)
+    if not request.include_references:
+        report.references = []
+        for finding in report.findings:
+            finding.references = []
+    if request.session_id:
+        memory.append(request.session_id, "assistant", report.executive_summary)
+    report.incident.tags = sorted(
+        set(report.incident.tags + [f"analyst:{request.analyst_id or current_user.username}"])
+    )
     return report
 
 

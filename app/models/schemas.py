@@ -15,11 +15,27 @@ class AlertSeverity(StrEnum):
     critical = "critical"
 
 
+class IncidentDomain(StrEnum):
+    security = "security"
+    production = "production"
+    cloud = "cloud"
+    data = "data"
+    it = "it"
+
+
 class Verdict(StrEnum):
     benign = "benign"
     suspicious = "suspicious"
     likely_compromise = "likely_compromise"
     confirmed_incident = "confirmed_incident"
+
+
+class IncidentStatus(StrEnum):
+    informational = "informational"
+    investigating = "investigating"
+    degraded = "degraded"
+    major_incident = "major_incident"
+    resolved = "resolved"
 
 
 class SecurityAlert(BaseModel):
@@ -37,6 +53,23 @@ class SecurityAlert(BaseModel):
     raw_events: list[dict[str, Any]] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     description: str = ""
+
+
+class IncidentInput(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str
+    domain: IncidentDomain = IncidentDomain.production
+    severity: AlertSeverity = AlertSeverity.medium
+    source: str = "manual"
+    detected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    service: str | None = None
+    environment: str | None = None
+    owner_team: str | None = None
+    description: str = ""
+    logs: list[str] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class RetrievedDocument(BaseModel):
@@ -85,8 +118,29 @@ class InvestigationReport(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class IncidentReport(BaseModel):
+    investigation_id: UUID = Field(default_factory=uuid4)
+    incident: IncidentInput
+    status: IncidentStatus
+    risk_score: int = Field(ge=0, le=100)
+    executive_summary: str
+    timeline: list[str]
+    findings: list[AgentFinding]
+    evidence: list[EvidenceItem]
+    recommended_actions: list[RemediationStep]
+    references: list[RetrievedDocument]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class InvestigationRequest(BaseModel):
     alert: SecurityAlert
+    include_references: bool = True
+    session_id: str | None = None
+    analyst_id: str | None = None
+
+
+class IncidentInvestigationRequest(BaseModel):
+    incident: IncidentInput
     include_references: bool = True
     session_id: str | None = None
     analyst_id: str | None = None
