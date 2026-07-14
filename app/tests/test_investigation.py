@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from langgraph.graph.state import CompiledStateGraph
 
 from app.main import app
 from app.models.schemas import SecurityAlert, Verdict
@@ -20,6 +21,12 @@ def test_sample_alert_is_likely_compromise_or_higher() -> None:
     assert report.verdict in {Verdict.likely_compromise, Verdict.confirmed_incident}
     assert report.references
     assert report.recommended_actions
+
+
+def test_investigation_uses_compiled_langgraph() -> None:
+    graph = InvestigationGraph()
+
+    assert isinstance(graph.graph, CompiledStateGraph)
 
 
 def test_investigate_endpoint() -> None:

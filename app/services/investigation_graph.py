@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+from langgraph.graph import END, START, StateGraph
+
 from app.agents.enrichment import ThreatEnrichmentAgent
 from app.agents.evidence import EvidenceCollectorAgent
 from app.agents.remediation import RemediationRecommenderAgent
@@ -19,25 +21,20 @@ from app.rag.retriever import SecurityKnowledgeRetriever
 
 
 class InvestigationGraph:
-    """Deterministic orchestration that mirrors a LangGraph-style state transition flow."""
+    """LangGraph orchestration for the RAG-grounded security investigation workflow."""
 
     def __init__(self, retriever: SecurityKnowledgeRetriever | None = None):
         self.retriever = retriever or SecurityKnowledgeRetriever()
-        self.agents = [
-            AlertTriageAgent(),
-            ThreatEnrichmentAgent(),
-            EvidenceCollectorAgent(),
-            RemediationRecommenderAgent(),
-        ]
+        self.triage_agent = AlertTriageAgent()
+        self.enrichment_agent = ThreatEnrichmentAgent()
+        self.evidence_agent = EvidenceCollectorAgent()
+        self.remediation_agent = RemediationRecommenderAgent()
+        self.graph = self._build_graph()
 
     def investigate(self, alert: SecurityAlert) -> InvestigationReport:
         started = time.perf_counter()
         state = InvestigationState(alert=alert)
-        state.references = self.retriever.retrieve_for_alert(alert)
-        state.timeline.append(f"Retrieved {len(state.references)} relevant knowledge base documents.")
-
-        for agent in self.agents:
-            state = agent.run(state)
+        state = InvestigationState.model_validate(self.graph.invoke(state))
 
         state.risk_score = max(0, min(state.risk_score, 100))
         verdict = self._verdict_for_score(state.risk_score)
@@ -56,6 +53,27 @@ class InvestigationGraph:
         INVESTIGATIONS_TOTAL.labels(severity=alert.severity.value, verdict=verdict.value).inc()
         INVESTIGATION_DURATION.observe(time.perf_counter() - started)
         return report
+
+    def _build_graph(self):
+        graph = StateGraph(InvestigationState)
+        graph.add_node("retrieve_context", self._retrieve_context)
+        graph.add_node("alert_triage", self.triage_agent.run)
+        graph.add_node("threat_enrichment", self.enrichment_agent.run)
+        graph.add_node("evidence_collection", self.evidence_agent.run)
+        graph.add_node("remediation_recommendation", self.remediation_agent.run)
+
+        graph.add_edge(START, "retrieve_context")
+        graph.add_edge("retrieve_context", "alert_triage")
+        graph.add_edge("alert_triage", "threat_enrichment")
+        graph.add_edge("threat_enrichment", "evidence_collection")
+        graph.add_edge("evidence_collection", "remediation_recommendation")
+        graph.add_edge("remediation_recommendation", END)
+        return graph.compile()
+
+    def _retrieve_context(self, state: InvestigationState) -> InvestigationState:
+        state.references = self.retriever.retrieve_for_alert(state.alert)
+        state.timeline.append(f"Retrieved {len(state.references)} relevant knowledge base documents.")
+        return state
 
     @staticmethod
     def _verdict_for_score(score: int) -> Verdict:

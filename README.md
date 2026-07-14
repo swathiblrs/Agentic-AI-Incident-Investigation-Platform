@@ -1,6 +1,6 @@
 # AI Security Alert Investigation Agent
 
-A production-ready AI agent that helps SOC and security teams investigate suspicious alerts by analyzing SIEM events, identity logs, security playbooks, MITRE ATT&CK notes, and past incident documentation using agent orchestration + Retrieval Augmented Generation (RAG).
+A production-ready AI security investigation system that helps SOC and security teams investigate suspicious alerts by analyzing SIEM events, identity logs, security playbooks, MITRE ATT&CK notes, and past incident documentation using LangGraph + Retrieval Augmented Generation (RAG).
 
 ## Why this project exists
 
@@ -22,15 +22,15 @@ The agent can:
 High level workflow:
 
 Security alert or SIEM events  
--> Investigation orchestration  
+-> LangGraph orchestration  
 -> RAG pipeline retrieves relevant playbooks, incidents, and ATT&CK notes  
--> Agent reasoning over alert context, evidence, and references  
+-> Investigation nodes reason over alert context, evidence, and references  
 -> Structured security investigation report
 
 Core stack:
 
 - FastAPI for API backend
-- Agent orchestration for triage, enrichment, evidence collection, and remediation
+- LangGraph for triage, enrichment, evidence collection, and remediation orchestration
 - Local RAG retriever for offline development
 - PostgreSQL + pgvector schema for production vector search
 - Pydantic models for structured investigation reports
@@ -40,7 +40,7 @@ Core stack:
 
 ## Key Features
 
-### Security Alert Investigation Agent
+### LangGraph Security Alert Investigation Workflow
 
 - Submit alerts from SIEM, IAM, EDR, or cloud security tooling
 - Analyze login anomalies, suspicious infrastructure, and post-authentication activity
@@ -78,10 +78,10 @@ This project uses a RAG-style pipeline to ground investigations in security know
 
 ### Security Workflow Coverage
 
-- Alert triage agent
-- Threat enrichment agent
-- Evidence collector agent
-- Remediation recommender agent
+- Alert triage LangGraph node
+- Threat enrichment LangGraph node
+- Evidence collector LangGraph node
+- Remediation recommender LangGraph node
 - Risk scoring and verdict generation
 - Investigation timeline and evidence summary
 
@@ -220,9 +220,8 @@ The test suite validates:
 - Replace local retrieval with embedding generation and pgvector search
 - Add analyst feedback loops for risk scoring calibration
 - Persist investigation history in PostgreSQL
-- Add LangGraph-backed multi-step workflow execution
 - Add Slack, Jira, and PagerDuty handoff actions
 
 ## Acknowledgements
 
-Built as a SOC-focused AI incident investigation project using FastAPI, RAG, agent orchestration, pgvector-ready storage, and monitoring patterns for production security workflows.
+Built as a SOC-focused AI incident investigation project using FastAPI, LangGraph, RAG, pgvector-ready storage, and monitoring patterns for production security workflows.
