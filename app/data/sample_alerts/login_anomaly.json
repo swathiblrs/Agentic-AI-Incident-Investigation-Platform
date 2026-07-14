@@ -1,0 +1,33 @@
+{
+  "title": "Impossible travel login for finance user",
+  "severity": "high",
+  "source": "okta",
+  "user": "morgan.lee@example.com",
+  "host": "FIN-LAPTOP-22",
+  "ip_address": "185.220.101.44",
+  "geo": "Romania",
+  "tactic": "Credential Access",
+  "technique": "T1078",
+  "tags": ["impossible-travel", "mfa-fatigue", "new-country", "identity"],
+  "description": "Successful login from a new country 11 minutes after a normal login from Chicago. User accepted MFA after four denied push prompts.",
+  "raw_events": [
+    {
+      "timestamp": "2026-07-14T13:04:11Z",
+      "event": "user.authentication.failed",
+      "ip": "185.220.101.44",
+      "reason": "MFA push denied"
+    },
+    {
+      "timestamp": "2026-07-14T13:08:29Z",
+      "event": "user.authentication.succeeded",
+      "ip": "185.220.101.44",
+      "device": "unknown",
+      "asn": "hosting-provider"
+    },
+    {
+      "timestamp": "2026-07-14T13:14:52Z",
+      "event": "o365.mailbox_rule.created",
+      "rule": "forward invoices to external address"
+    }
+  ]
+}
