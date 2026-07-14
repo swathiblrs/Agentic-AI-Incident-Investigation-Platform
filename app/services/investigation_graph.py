@@ -11,6 +11,7 @@ from app.agents.triage import AlertTriageAgent
 from app.core.config import get_settings
 from app.core.telemetry import INVESTIGATION_DURATION, INVESTIGATIONS_TOTAL
 from app.models.schemas import (
+    AgentFinding,
     InvestigationReport,
     RemediationStep,
     SecurityAlert,
@@ -18,6 +19,8 @@ from app.models.schemas import (
 )
 from app.models.state import InvestigationState
 from app.rag.retriever import SecurityKnowledgeRetriever
+from app.services.llm import OllamaService
+from app.services.tracing import LangfuseTracer
 
 
 class InvestigationGraph:
@@ -25,6 +28,8 @@ class InvestigationGraph:
 
     def __init__(self, retriever: SecurityKnowledgeRetriever | None = None):
         self.retriever = retriever or SecurityKnowledgeRetriever()
+        self.llm = OllamaService()
+        self.tracer = LangfuseTracer()
         self.triage_agent = AlertTriageAgent()
         self.enrichment_agent = ThreatEnrichmentAgent()
         self.evidence_agent = EvidenceCollectorAgent()
@@ -50,6 +55,7 @@ class InvestigationGraph:
             references=state.references,
         )
 
+        self.tracer.trace_investigation(report)
         INVESTIGATIONS_TOTAL.labels(severity=alert.severity.value, verdict=verdict.value).inc()
         INVESTIGATION_DURATION.observe(time.perf_counter() - started)
         return report
@@ -60,19 +66,36 @@ class InvestigationGraph:
         graph.add_node("alert_triage", self.triage_agent.run)
         graph.add_node("threat_enrichment", self.enrichment_agent.run)
         graph.add_node("evidence_collection", self.evidence_agent.run)
+        graph.add_node("llm_reasoning", self._llm_reasoning)
         graph.add_node("remediation_recommendation", self.remediation_agent.run)
 
         graph.add_edge(START, "retrieve_context")
         graph.add_edge("retrieve_context", "alert_triage")
         graph.add_edge("alert_triage", "threat_enrichment")
         graph.add_edge("threat_enrichment", "evidence_collection")
-        graph.add_edge("evidence_collection", "remediation_recommendation")
+        graph.add_edge("evidence_collection", "llm_reasoning")
+        graph.add_edge("llm_reasoning", "remediation_recommendation")
         graph.add_edge("remediation_recommendation", END)
         return graph.compile()
 
     def _retrieve_context(self, state: InvestigationState) -> InvestigationState:
         state.references = self.retriever.retrieve_for_alert(state.alert)
         state.timeline.append(f"Retrieved {len(state.references)} relevant knowledge base documents.")
+        return state
+
+    def _llm_reasoning(self, state: InvestigationState) -> InvestigationState:
+        analysis = self.llm.analyze_alert(state.alert, state.references)
+        state.timeline.append("LLM reasoning generated a grounded investigation assessment.")
+        state.findings.append(
+            AgentFinding(
+                agent="llm_reasoning",
+                summary=analysis,
+                risk_delta=0,
+                confidence=0.7,
+                evidence=[analysis],
+                references=state.references[:3],
+            )
+        )
         return state
 
     @staticmethod

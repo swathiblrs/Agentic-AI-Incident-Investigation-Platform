@@ -1,0 +1,38 @@
+{
+  "family": "ai-security-alert-investigation-agent",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "<account-id>.dkr.ecr.<region>.amazonaws.com/ai-security-alert-investigation-agent:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {"name": "APP_ENV", "value": "production"},
+        {"name": "AUTH_REQUIRED", "value": "true"},
+        {"name": "USE_POSTGRES", "value": "true"}
+      ],
+      "secrets": [
+        {"name": "DATABASE_URL", "valueFrom": "/security-agent/database-url"},
+        {"name": "JWT_SECRET_KEY", "valueFrom": "/security-agent/jwt-secret-key"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ai-security-alert-investigation-agent",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "api"
+        }
+      }
+    }
+  ]
+}

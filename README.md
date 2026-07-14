@@ -31,12 +31,16 @@ Core stack:
 
 - FastAPI for API backend
 - LangGraph for triage, enrichment, evidence collection, and remediation orchestration
-- Local RAG retriever for offline development
-- PostgreSQL + pgvector schema for production vector search
+- Ollama for local LLM reasoning and embeddings with deterministic fallback
+- PostgreSQL + pgvector for vector search
+- Redis for session memory and caching
+- JWT authentication for protected investigation endpoints
+- Optional Langfuse tracing for LLM and investigation observability
 - Pydantic models for structured investigation reports
 - Prometheus + Grafana for monitoring
 - Docker for containerization
 - Production-ready extension points for SIEM, EDR, IAM, and LLM integrations
+- AWS-ready deployment templates that cost nothing until applied
 
 ## Key Features
 
@@ -47,6 +51,7 @@ Core stack:
 - Semantic search across security runbooks and past incident notes
 - Explainable verdicts such as benign, suspicious, likely compromise, or confirmed incident
 - Recommended containment and remediation steps
+- Conversation memory per analyst session using Redis with in-memory fallback
 
 ### Retrieval Augmented Generation Pipeline
 
@@ -57,11 +62,14 @@ This project uses a RAG-style pipeline to ground investigations in security know
 - Past incident archive examples
 - SIEM hunting query guidance
 - Local vector-style retrieval for offline demos
-- pgvector schema for production retrieval storage
+- Ollama embedding generation for local semantic indexing
+- PostgreSQL + pgvector retrieval runtime
+- Knowledge-base ingestion script for indexing playbooks and runbooks
 
 ### Production Backend
 
 - FastAPI REST API
+- JWT token endpoint and protected investigation route
 - Typed request and response models
 - Health and metrics endpoints
 - Input validation with Pydantic
@@ -75,6 +83,15 @@ This project uses a RAG-style pipeline to ground investigations in security know
 - End-to-end investigation duration metrics
 - Per-agent execution duration metrics
 - Grafana provisioning included
+- Optional Langfuse tracing endpoint configuration
+
+### Performance & Reliability
+
+- Docker Compose setup for local services
+- Redis-backed session memory with in-memory fallback
+- Ollama calls automatically fall back to deterministic local reasoning when Ollama is unavailable
+- pytest-based evaluation framework with JSON reports
+- Makefile and uv workflow for repeatable local commands
 
 ### Security Workflow Coverage
 
@@ -112,7 +129,9 @@ app/
  └── storage/            # PostgreSQL + pgvector schema
 
 scripts/                 # CLI demo scripts
+evals/                   # pytest-style evaluation cases and JSON reports
 docker/                  # Prometheus and Grafana configuration
+infra/aws/               # AWS-ready templates and deployment notes
 ```
 
 ## Getting Started
@@ -120,8 +139,11 @@ docker/                  # Prometheus and Grafana configuration
 ### Prerequisites
 
 - Python 3.11+
+- uv
 - Docker + Docker Compose
-- PostgreSQL with pgvector for production vector search
+- Ollama for local LLM reasoning and embeddings
+- PostgreSQL with pgvector for vector search
+- Redis for session memory
 
 ### Local Setup
 
@@ -142,7 +164,7 @@ source .venv/bin/activate
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 Create environment file:
@@ -154,7 +176,7 @@ cp .env.example .env
 Run locally:
 
 ```bash
-uvicorn app.main:app --reload
+make dev
 ```
 
 Swagger docs available at:
@@ -166,16 +188,24 @@ http://localhost:8000/docs
 Useful endpoints:
 
 ```text
+POST /api/auth/token
 GET  /api/health
 GET  /api/sample-alert
 POST /api/investigate
+GET  /api/sessions/{session_id}/memory
 GET  /api/metrics
 ```
 
 Run the sample investigation:
 
 ```bash
-python scripts/run_sample.py
+make sample
+```
+
+Index the local security knowledge base into pgvector:
+
+```bash
+make ingest
 ```
 
 ## Run with Docker
@@ -190,6 +220,8 @@ Monitoring dashboards:
 Prometheus -> http://localhost:9090
 Grafana    -> http://localhost:3000
 API        -> http://localhost:8000
+Ollama     -> http://localhost:11434
+Redis      -> localhost:6379
 ```
 
 Grafana default login:
@@ -203,7 +235,7 @@ admin / admin
 Run automated tests:
 
 ```bash
-python -m pytest
+make test
 ```
 
 The test suite validates:
@@ -212,12 +244,36 @@ The test suite validates:
 - FastAPI investigation endpoint
 - Risk scoring and verdict generation
 - Presence of references and remediation actions
+- JWT authentication and session memory
+- LangGraph workflow compilation
+
+Run evaluation cases:
+
+```bash
+make eval
+```
+
+Reports are generated in:
+
+```text
+evals/reports/
+```
+
+## AWS Deployment Setup
+
+AWS-ready templates live in:
+
+```text
+infra/aws/
+```
+
+These files are free to keep in the repo. They only cost money if you intentionally create AWS resources, for example by running Terraform apply or deploying ECS/RDS/ElastiCache resources.
 
 ## Future Improvements
 
 - Add real SIEM integrations such as Splunk, Microsoft Sentinel, and Elastic
 - Add IAM integrations such as Okta, Entra ID, and Google Workspace
-- Replace local retrieval with embedding generation and pgvector search
+- Add larger security evaluation datasets
 - Add analyst feedback loops for risk scoring calibration
 - Persist investigation history in PostgreSQL
 - Add Slack, Jira, and PagerDuty handoff actions

@@ -7,6 +7,7 @@ services:
       - .env.example
     depends_on:
       - postgres
+      - redis
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -19,6 +20,18 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./app/storage/postgres_pgvector.sql:/docker-entrypoint-initdb.d/001_pgvector.sql:ro
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
 
   prometheus:
     image: prom/prometheus:v2.53.0
@@ -41,5 +54,20 @@ services:
     depends_on:
       - prometheus
 
+  langfuse:
+    image: langfuse/langfuse:2
+    profiles: ["tracing"]
+    ports:
+      - "3001:3000"
+    environment:
+      DATABASE_URL: postgresql://incident:incident@postgres:5432/incident_response
+      NEXTAUTH_SECRET: local-langfuse-secret
+      SALT: local-langfuse-salt
+      NEXTAUTH_URL: http://localhost:3001
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      - postgres
+
 volumes:
   pgdata:
+  ollama:

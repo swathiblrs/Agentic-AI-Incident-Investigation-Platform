@@ -1,0 +1,23 @@
+name: Deploy API to AWS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<account-id>:role/github-actions-deploy
+          aws-region: <region>
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push image
+        run: |
+          docker build -t ai-security-alert-investigation-agent .
+          docker tag ai-security-alert-investigation-agent:latest <account-id>.dkr.ecr.<region>.amazonaws.com/ai-security-alert-investigation-agent:latest
+          docker push <account-id>.dkr.ecr.<region>.amazonaws.com/ai-security-alert-investigation-agent:latest

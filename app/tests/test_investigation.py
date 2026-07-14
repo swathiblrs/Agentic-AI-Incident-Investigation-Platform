@@ -31,9 +31,30 @@ def test_investigation_uses_compiled_langgraph() -> None:
 
 def test_investigate_endpoint() -> None:
     client = TestClient(app)
-    response = client.post("/api/investigate", json={"alert": load_sample_alert().model_dump(mode="json")})
+    token_response = client.post(
+        "/api/auth/token",
+        json={"username": "analyst", "password": "analyst"},
+    )
+    token = token_response.json()["access_token"]
+
+    response = client.post(
+        "/api/investigate",
+        json={
+            "alert": load_sample_alert().model_dump(mode="json"),
+            "session_id": "pytest-session",
+            "analyst_id": "pytest",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 200
     body = response.json()
     assert body["risk_score"] >= 75
     assert body["findings"]
+
+    memory_response = client.get(
+        "/api/sessions/pytest-session/memory",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert memory_response.status_code == 200
+    assert len(memory_response.json()["messages"]) >= 2

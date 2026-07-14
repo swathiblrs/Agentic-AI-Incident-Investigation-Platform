@@ -18,5 +18,16 @@ CREATE TABLE IF NOT EXISTS investigations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS session_messages (
+  id BIGSERIAL PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS security_documents_embedding_idx
 ON security_documents USING ivfflat (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS session_messages_session_id_idx
+ON session_messages (session_id, created_at);

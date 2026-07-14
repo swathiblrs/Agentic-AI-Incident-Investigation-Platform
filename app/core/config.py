@@ -11,6 +11,25 @@ class Settings(BaseSettings):
     risk_threshold_medium: int = 45
     database_url: str = "postgresql://incident:incident@localhost:5432/incident_response"
     use_postgres: bool = False
+    postgres_host: str = "localhost"
+    postgres_db: str = "incident_response"
+    postgres_user: str = "incident"
+    postgres_password: str = "incident"
+    redis_url: str = "redis://localhost:6379/0"
+    auth_required: bool = True
+    jwt_secret_key: str = "change-me-local-secret-at-least-32-characters"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 120
+    demo_username: str = "analyst"
+    demo_password: str = "analyst"
+    llm_provider: str = "ollama"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_llm_model: str = "llama3.1"
+    ollama_embed_model: str = "nomic-embed-text"
+    langfuse_enabled: bool = False
+    langfuse_host: str = "http://localhost:3001"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

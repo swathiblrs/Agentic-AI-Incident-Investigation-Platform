@@ -1,0 +1,7 @@
+{
+  "name": "login anomaly account takeover",
+  "alert_file": "app/data/sample_alerts/login_anomaly.json",
+  "min_risk_score": 75,
+  "allowed_verdicts": ["likely_compromise", "confirmed_incident"],
+  "required_actions": ["Revoke active sessions", "MFA"]
+}

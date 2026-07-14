@@ -88,9 +88,16 @@ class InvestigationReport(BaseModel):
 class InvestigationRequest(BaseModel):
     alert: SecurityAlert
     include_references: bool = True
+    session_id: str | None = None
+    analyst_id: str | None = None
 
 
 class HealthResponse(BaseModel):
     status: str
     app: str
     env: str
+
+
+class SessionMemoryResponse(BaseModel):
+    session_id: str
+    messages: list[dict[str, str]]

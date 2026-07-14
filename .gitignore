@@ -9,3 +9,8 @@ __pycache__/
 *.sqlite
 dist/
 build/
+evals/reports/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
