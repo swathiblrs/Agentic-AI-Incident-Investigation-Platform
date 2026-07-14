@@ -1,8 +1,8 @@
-# AI Incident Investigation Platform
+# 🚨 AI Incident Investigation Platform
 
 A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG).
 
-## Why this project exists
+## 🌟 Why this project exists
 
 During incidents, teams spend valuable time searching logs, dashboards, tickets, runbooks, security playbooks, and past incidents to understand what happened and what to do next.
 
@@ -17,7 +17,7 @@ The platform can:
 - Produce structured reports with risk/status, timeline, evidence, references, and recommended actions
 - Maintain conversation memory across analyst sessions
 
-## Architecture Overview
+## 🏗️ Architecture Overview
 
 High level workflow:
 
@@ -41,19 +41,19 @@ Core stack:
 - Docker for local containerization
 - AWS-ready deployment templates that cost nothing until applied
 
-## Supported Domains
+## 🌐 Supported Domains
 
 | Domain | Example Question | Output Focus |
 |---|---|---|
-| Security | "Is this login anomaly a real account takeover?" | Verdict, risk score, evidence, containment |
-| Production / SRE | "Why is checkout returning 503 errors?" | Status, impact, likely causes, mitigation |
-| Cloud Infrastructure | "Why did capacity drop in this cluster?" | Cloud events, quotas, routing, failover |
-| Data Engineering | "Why did this pipeline fail or drift?" | Freshness, schema, quality, backfill steps |
-| IT Operations | "Why are users unable to access VPN or email?" | User impact, access path, workaround, escalation |
+| 🔐 Security | "Is this login anomaly a real account takeover?" | Verdict, risk score, evidence, containment |
+| 🛠️ Production / SRE | "Why is checkout returning 503 errors?" | Status, impact, likely causes, mitigation |
+| ☁️ Cloud Infrastructure | "Why did capacity drop in this cluster?" | Cloud events, quotas, routing, failover |
+| 🧬 Data Engineering | "Why did this pipeline fail or drift?" | Freshness, schema, quality, backfill steps |
+| 🖥️ IT Operations | "Why are users unable to access VPN or email?" | User impact, access path, workaround, escalation |
 
-## Key Features
+## 🤖 Key Features
 
-### Multi-Domain LangGraph Workflows
+### 🧭 Multi-Domain LangGraph Workflows
 
 - Security-specific workflow for alert triage, threat enrichment, evidence collection, and remediation
 - Generic incident workflow for production, cloud, data, and IT incidents
@@ -61,7 +61,7 @@ Core stack:
 - RAG-grounded reasoning before response recommendations
 - Conversation memory per analyst session using Redis with in-memory fallback
 
-### Retrieval Augmented Generation Pipeline
+### 🧠 Retrieval Augmented Generation Pipeline
 
 This project uses a RAG-style pipeline to ground investigations in operational knowledge.
 
@@ -75,7 +75,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - PostgreSQL + pgvector retrieval runtime
 - Knowledge-base ingestion script for indexing playbooks and runbooks
 
-### Production Backend
+### ⚙️ Production Backend
 
 - FastAPI REST API
 - JWT token endpoint and protected investigation routes
@@ -85,7 +85,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Structured investigation reports
 - Docker Compose setup for API, Postgres, Redis, Ollama, Prometheus, Grafana, and optional Langfuse
 
-### Observability & Evaluation
+### 📊 Observability & Evaluation
 
 - Prometheus metrics endpoint
 - Investigation count and duration metrics
@@ -94,7 +94,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Optional Langfuse tracing endpoint configuration
 - pytest-based evaluation framework with JSON reports
 
-### Performance & Reliability
+### ⚡ Performance & Reliability
 
 - Docker Compose setup for local services
 - Redis-backed session memory with in-memory fallback
@@ -102,7 +102,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Makefile and uv workflow for repeatable local commands
 - AWS-ready deployment templates under `infra/aws/`
 
-## Example Use Cases
+## 💡 Example Use Cases
 
 Example investigations:
 
@@ -114,7 +114,7 @@ Example investigations:
 
 The platform retrieves relevant runbook sections and produces structured investigation guidance with evidence, risk or status, references, and recommended actions.
 
-## Project Structure
+## 📂 Project Structure
 
 ```text
 app/
@@ -135,9 +135,9 @@ docker/                  # Prometheus and Grafana configuration
 infra/aws/               # AWS-ready templates and deployment notes
 ```
 
-## Getting Started
+## 🚀 Getting Started
 
-### Prerequisites
+### ✅ Prerequisites
 
 - Python 3.11+
 - uv
@@ -146,7 +146,7 @@ infra/aws/               # AWS-ready templates and deployment notes
 - PostgreSQL with pgvector for vector search
 - Redis for session memory
 
-### Local Setup
+### 🔧 Local Setup
 
 Clone the repo:
 
@@ -203,7 +203,7 @@ Index the local knowledge base into pgvector:
 make ingest
 ```
 
-## Run with Docker
+## 🐳 Run with Docker
 
 ```bash
 docker compose up --build
@@ -225,7 +225,7 @@ Grafana default login:
 admin / admin
 ```
 
-## Testing
+## 🧪 Testing
 
 Run automated tests:
 
@@ -255,7 +255,7 @@ Reports are generated in:
 evals/reports/
 ```
 
-## AWS Deployment Setup
+## ☁️ AWS Deployment Setup
 
 AWS-ready templates live in:
 
@@ -265,7 +265,7 @@ infra/aws/
 
 These files are free to keep in the repo. They only cost money if you intentionally create AWS resources, for example by running Terraform apply or deploying ECS/RDS/ElastiCache resources.
 
-## Future Improvements
+## 🔮 Future Improvements
 
 - Add real SIEM integrations such as Splunk, Microsoft Sentinel, and Elastic
 - Add production observability integrations such as Datadog, Grafana Loki, CloudWatch, and OpenTelemetry
@@ -275,6 +275,6 @@ These files are free to keep in the repo. They only cost money if you intentiona
 - Persist investigation history in PostgreSQL
 - Add Slack, Jira, PagerDuty, and ServiceNow handoff actions
 
-## Acknowledgements
+## 🙌 Acknowledgements
 
 Built as a multi-domain incident investigation project using FastAPI, LangGraph, RAG, Ollama, pgvector-ready storage, Redis session memory, and monitoring patterns for security and operations workflows.
