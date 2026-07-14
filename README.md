@@ -1,100 +1,228 @@
 # AI Security Alert Investigation Agent
 
-An incident response agent for SOC teams investigating suspicious security alerts. It combines RAG over security playbooks and past incidents with a multi-agent workflow for alert triage, threat enrichment, evidence collection, and remediation recommendations.
+A production-ready AI agent that helps SOC and security teams investigate suspicious alerts by analyzing SIEM events, identity logs, security playbooks, MITRE ATT&CK notes, and past incident documentation using agent orchestration + Retrieval Augmented Generation (RAG).
 
-## What It Does
+## Why this project exists
 
-- Investigates identity and SIEM alerts through a FastAPI endpoint.
-- Retrieves relevant playbooks, MITRE ATT&CK notes, past incidents, and hunting guidance.
-- Runs deterministic agents that produce explainable risk scoring and evidence.
-- Exposes Prometheus metrics and includes a Docker Compose stack with Postgres, pgvector, Prometheus, and Grafana.
-- Ships with a realistic login anomaly sample: "Is this login anomaly a real account takeover?"
+During security investigations, analysts spend valuable time searching SIEM logs, identity provider events, runbooks, threat notes, and historical incidents to decide whether an alert is benign or a real compromise.
 
-## Architecture
+This system acts as an AI copilot for alert investigation, helping reduce triage time and improve investigation consistency.
 
-```mermaid
-flowchart LR
-    Alert["Security Alert"] --> API["FastAPI /api/investigate"]
-    API --> RAG["RAG Retriever"]
-    RAG --> KB["Playbooks + MITRE + Incidents + SIEM Queries"]
-    API --> Graph["Investigation Graph"]
-    Graph --> Triage["Alert Triage Agent"]
-    Triage --> Enrich["Threat Enrichment Agent"]
-    Enrich --> Evidence["Evidence Collector Agent"]
-    Evidence --> Remediate["Remediation Recommender"]
-    Remediate --> Report["Investigation Report"]
-    API --> Metrics["Prometheus Metrics"]
+The agent can:
+
+- Analyze suspicious security alerts and raw events
+- Retrieve relevant playbooks, MITRE ATT&CK notes, and past incidents
+- Triage alert severity with explainable risk scoring
+- Enrich alerts with threat and infrastructure context
+- Collect evidence into a structured investigation timeline
+- Recommend containment and remediation actions
+
+## Architecture Overview
+
+High level workflow:
+
+Security alert or SIEM events  
+-> Investigation orchestration  
+-> RAG pipeline retrieves relevant playbooks, incidents, and ATT&CK notes  
+-> Agent reasoning over alert context, evidence, and references  
+-> Structured security investigation report
+
+Core stack:
+
+- FastAPI for API backend
+- Agent orchestration for triage, enrichment, evidence collection, and remediation
+- Local RAG retriever for offline development
+- PostgreSQL + pgvector schema for production vector search
+- Pydantic models for structured investigation reports
+- Prometheus + Grafana for monitoring
+- Docker for containerization
+- Production-ready extension points for SIEM, EDR, IAM, and LLM integrations
+
+## Key Features
+
+### Security Alert Investigation Agent
+
+- Submit alerts from SIEM, IAM, EDR, or cloud security tooling
+- Analyze login anomalies, suspicious infrastructure, and post-authentication activity
+- Semantic search across security runbooks and past incident notes
+- Explainable verdicts such as benign, suspicious, likely compromise, or confirmed incident
+- Recommended containment and remediation steps
+
+### Retrieval Augmented Generation Pipeline
+
+This project uses a RAG-style pipeline to ground investigations in security knowledge.
+
+- Playbook and runbook knowledge base
+- MITRE ATT&CK identity technique notes
+- Past incident archive examples
+- SIEM hunting query guidance
+- Local vector-style retrieval for offline demos
+- pgvector schema for production retrieval storage
+
+### Production Backend
+
+- FastAPI REST API
+- Typed request and response models
+- Health and metrics endpoints
+- Input validation with Pydantic
+- Structured investigation reports
+- Docker Compose setup for API, Postgres, Prometheus, and Grafana
+
+### Observability & Monitoring
+
+- Prometheus metrics endpoint
+- Investigation count by severity and verdict
+- End-to-end investigation duration metrics
+- Per-agent execution duration metrics
+- Grafana provisioning included
+
+### Security Workflow Coverage
+
+- Alert triage agent
+- Threat enrichment agent
+- Evidence collector agent
+- Remediation recommender agent
+- Risk scoring and verdict generation
+- Investigation timeline and evidence summary
+
+## Example Use Cases
+
+Example investigations:
+
+- "Is this impossible-travel login a real account takeover?"
+- "A user accepted MFA after repeated denied push prompts. Should we contain the account?"
+- "A suspicious IP logged in and created a mailbox forwarding rule. What evidence matters?"
+- "What remediation steps should the SOC take for likely identity compromise?"
+
+The agent retrieves relevant playbook sections and produces structured investigation guidance with evidence, risk score, references, and recommended actions.
+
+## Project Structure
+
+```text
+app/
+ ├── api/                # FastAPI REST endpoints
+ ├── agents/             # Alert triage, enrichment, evidence, remediation agents
+ ├── core/               # App settings and telemetry
+ ├── data/
+ │    ├── knowledge_base/ # Security playbooks, MITRE notes, past incidents
+ │    └── sample_alerts/  # Demo security alerts
+ ├── models/             # Pydantic schemas and investigation state
+ ├── rag/                # Local retrieval pipeline
+ ├── services/           # Investigation orchestration
+ └── storage/            # PostgreSQL + pgvector schema
+
+scripts/                 # CLI demo scripts
+docker/                  # Prometheus and Grafana configuration
 ```
 
-## Quick Start
+## Getting Started
 
-Use Python 3.11 or newer.
+### Prerequisites
+
+- Python 3.11+
+- Docker + Docker Compose
+- PostgreSQL with pgvector for production vector search
+
+### Local Setup
+
+Clone the repo:
+
+```bash
+git clone https://github.com/swathiblrs/AI-Security-Alert-Investigation-Agent.git
+cd AI-Security-Alert-Investigation-Agent
+```
+
+Create a virtual environment:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
+```
+
+Create environment file:
+
+```bash
+cp .env.example .env
+```
+
+Run locally:
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-Open:
+Swagger docs available at:
 
-- API docs: <http://localhost:8000/docs>
-- Health: <http://localhost:8000/api/health>
-- Sample alert: <http://localhost:8000/api/sample-alert>
-- Metrics: <http://localhost:8000/api/metrics>
+```text
+http://localhost:8000/docs
+```
 
-Run the included sample investigation:
+Useful endpoints:
+
+```text
+GET  /api/health
+GET  /api/sample-alert
+POST /api/investigate
+GET  /api/metrics
+```
+
+Run the sample investigation:
 
 ```bash
 python scripts/run_sample.py
 ```
 
-Or call the API:
-
-```bash
-curl -s http://localhost:8000/api/sample-alert \
-  | jq '{alert: .}' \
-  | curl -s -X POST http://localhost:8000/api/investigate \
-      -H 'Content-Type: application/json' \
-      -d @-
-```
-
-## Docker Stack
+## Run with Docker
 
 ```bash
 docker compose up --build
 ```
 
-Services:
-
-- API: <http://localhost:8000>
-- Prometheus: <http://localhost:9090>
-- Grafana: <http://localhost:3000> with `admin` / `admin`
-- Postgres with pgvector on `localhost:5432`
-
-The local app uses an offline vector store by default so it runs without external APIs. `app/storage/postgres_pgvector.sql` provides the schema for a production pgvector-backed document store.
-
-## Project Layout
+Monitoring dashboards:
 
 ```text
-app/
-  agents/                 Multi-agent investigation steps
-  api/                    FastAPI routes
-  core/                   Settings and telemetry
-  data/                   Sample playbooks, incidents, alerts
-  models/                 Pydantic schemas and graph state
-  rag/                    Local retrieval implementation
-  services/               Investigation graph orchestration
-  storage/                pgvector schema
-docker/                   Prometheus and Grafana provisioning
-scripts/run_sample.py     CLI demo
+Prometheus -> http://localhost:9090
+Grafana    -> http://localhost:3000
+API        -> http://localhost:8000
 ```
 
-## Next Extensions
+Grafana default login:
 
-- Replace `LocalVectorStore` with an embedding model and pgvector adapter.
-- Add connectors for Okta, Microsoft Sentinel, CrowdStrike, and Splunk.
-- Add analyst feedback to tune scoring thresholds.
-- Persist investigation reports to Postgres.
-- Swap the deterministic orchestration for LangGraph when deploying with LLM-backed reasoning.
+```text
+admin / admin
+```
+
+## Testing
+
+Run automated tests:
+
+```bash
+python -m pytest
+```
+
+The test suite validates:
+
+- Sample alert investigation workflow
+- FastAPI investigation endpoint
+- Risk scoring and verdict generation
+- Presence of references and remediation actions
+
+## Future Improvements
+
+- Add real SIEM integrations such as Splunk, Microsoft Sentinel, and Elastic
+- Add IAM integrations such as Okta, Entra ID, and Google Workspace
+- Replace local retrieval with embedding generation and pgvector search
+- Add analyst feedback loops for risk scoring calibration
+- Persist investigation history in PostgreSQL
+- Add LangGraph-backed multi-step workflow execution
+- Add Slack, Jira, and PagerDuty handoff actions
+
+## Acknowledgements
+
+Built as a SOC-focused AI incident investigation project using FastAPI, RAG, agent orchestration, pgvector-ready storage, and monitoring patterns for production security workflows.
