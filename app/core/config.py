@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_base_url: str = "https://api.anthropic.com/v1"
     anthropic_model: str = "claude-3-5-haiku-latest"
+    llm_max_retries: int = 3
+    llm_retry_base_seconds: float = 0.5
+    llm_retry_max_seconds: float = 4.0
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 5
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"
     langfuse_public_key: str = ""

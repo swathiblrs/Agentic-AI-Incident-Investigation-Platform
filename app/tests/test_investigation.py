@@ -8,6 +8,7 @@ from app.main import app
 from app.models.schemas import IncidentInput, IncidentStatus, SecurityAlert, Verdict
 from app.services.generic_incident_graph import GenericIncidentGraph
 from app.services.investigation_graph import InvestigationGraph
+from app.services.llm import OllamaService
 
 
 def load_sample_alert() -> SecurityAlert:
@@ -171,3 +172,27 @@ def test_domain_role_access_control() -> None:
     )
 
     assert response.status_code == 403
+
+
+def test_llm_retry_policy_for_transient_provider_errors(monkeypatch) -> None:
+    service = OllamaService()
+    calls = {"count": 0}
+
+    def flaky_provider(_: str) -> str:
+        import httpx
+
+        calls["count"] += 1
+        if calls["count"] < 2:
+            raise httpx.ConnectError("temporary")
+        return (
+            '{"summary":"ok","likely_causes":["temporary dependency"],'
+            '"recommended_next_steps":["retry succeeded"],"confidence":0.8}'
+        )
+
+    monkeypatch.setattr(service, "_call_provider", flaky_provider)
+    monkeypatch.setattr(service.settings, "llm_retry_base_seconds", 0)
+
+    result = service.analyze_alert(load_sample_alert(), [])
+
+    assert calls["count"] == 2
+    assert result.summary == "ok"

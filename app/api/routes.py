@@ -62,7 +62,7 @@ def token(request: AuthRequest) -> TokenResponse:
 
 
 @router.post("/investigate", response_model=InvestigationReport)
-def investigate(
+async def investigate(
     request: InvestigationRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> InvestigationReport:
@@ -77,12 +77,12 @@ def investigate(
     if request.session_id:
         memory.append(request.session_id, "assistant", report.executive_summary)
     report.alert.tags = sorted(set(report.alert.tags + [f"analyst:{request.analyst_id or current_user.username}"]))
-    report_store.save_security_report(report, session_id=request.session_id)
+    await report_store.save_security_report_async(report, session_id=request.session_id)
     return report
 
 
 @router.post("/incidents/investigate", response_model=IncidentReport)
-def investigate_incident(
+async def investigate_incident(
     request: IncidentInvestigationRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> IncidentReport:
@@ -99,26 +99,26 @@ def investigate_incident(
     report.incident.tags = sorted(
         set(report.incident.tags + [f"analyst:{request.analyst_id or current_user.username}"])
     )
-    report_store.save_incident_report(report, session_id=request.session_id)
+    await report_store.save_incident_report_async(report, session_id=request.session_id)
     return report
 
 
 @router.post("/ingest/document", response_model=IngestionResponse)
-def ingest_document(
+async def ingest_document(
     request: IngestDocumentRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> IngestionResponse:
     ensure_domain_access(current_user, request.domain)
-    return ingestion.ingest_document(request)
+    return await ingestion.ingest_document_async(request)
 
 
 @router.post("/ingest/logs", response_model=IngestionResponse)
-def ingest_logs(
+async def ingest_logs(
     request: IngestLogsRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> IngestionResponse:
     ensure_domain_access(current_user, request.domain)
-    return ingestion.ingest_logs(request)
+    return await ingestion.ingest_logs_async(request)
 
 
 @router.get("/reports", response_model=list[StoredReportSummary])

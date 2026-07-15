@@ -35,6 +35,7 @@ Core stack:
 - LangGraph for multi-step investigation workflows
 - Ollama for local LLM reasoning and embeddings with deterministic fallback
 - Optional OpenAI-compatible and Anthropic-compatible LLM provider switching
+- Bounded exponential retry with jitter for transient LLM provider failures
 - PostgreSQL + pgvector for vector search
 - Redis for session memory and caching
 - JWT authentication for protected investigation endpoints
@@ -89,6 +90,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - JWT token endpoint and protected investigation routes
 - Role-based access control for `security_analyst`, `sre`, `data_engineer`, `it_ops`, and `admin`
 - Report persistence with Postgres support and in-memory fallback
+- Async Postgres connection pooling for report and ingestion writes
 - Integration registry stubs for Splunk, Sentinel, Okta, CrowdStrike, Datadog, Loki, CloudWatch, Jira, ServiceNow, and Slack
 - Postmortem generation from stored reports
 - Typed request and response models
@@ -112,6 +114,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Docker Compose setup for local services
 - Redis-backed session memory with in-memory fallback
 - Ollama calls automatically fall back to deterministic local reasoning when Ollama is unavailable
+- LLM provider calls use retry/backoff before falling back
 - Makefile and uv workflow for repeatable local commands
 - AWS-ready deployment templates under `infra/aws/`
 - API dashboard for submitting incidents, viewing reports, copying actions, and browsing stored investigations

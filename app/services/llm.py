@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
+import time
+from collections.abc import Callable
 
 import httpx
 
@@ -18,10 +21,12 @@ class OllamaService:
             return self._deterministic_embedding(text)
 
         try:
-            response = httpx.post(
-                f"{self.settings.ollama_base_url}/api/embeddings",
-                json={"model": self.settings.ollama_embed_model, "prompt": text},
-                timeout=10,
+            response = self._with_retries(
+                lambda: httpx.post(
+                    f"{self.settings.ollama_base_url}/api/embeddings",
+                    json={"model": self.settings.ollama_embed_model, "prompt": text},
+                    timeout=10,
+                )
             )
             response.raise_for_status()
             embedding = response.json().get("embedding")
@@ -42,7 +47,7 @@ class OllamaService:
             return self._fallback_analysis(alert, domain)
 
         try:
-            text = self._call_provider(prompt)
+            text = self._with_retries(lambda: self._call_provider(prompt))
             return self._parse_reasoning(text)
         except httpx.HTTPError:
             pass
@@ -98,6 +103,25 @@ class OllamaService:
             if parts and isinstance(parts[0].get("text"), str):
                 return parts[0]["text"]
         raise ValueError("No supported live provider configured.")
+
+    def _with_retries(self, operation: Callable[[], object]):
+        attempts = max(1, self.settings.llm_max_retries)
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return operation()
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError, httpx.TransportError) as exc:
+                last_error = exc
+                if attempt == attempts - 1:
+                    break
+                delay = min(
+                    self.settings.llm_retry_max_seconds,
+                    self.settings.llm_retry_base_seconds * (2**attempt),
+                )
+                time.sleep(delay + random.uniform(0, delay / 4))
+        if last_error is not None:
+            raise last_error
+        raise ValueError("Retry operation failed without an exception.")
 
     @staticmethod
     def _parse_reasoning(text: str) -> LLMReasoningResult:
