@@ -1,0 +1,19 @@
+{
+  "name": "cloud load balancer unhealthy targets",
+  "incident": {
+    "title": "Load balancer has unhealthy targets",
+    "domain": "cloud",
+    "severity": "medium",
+    "source": "aws-elb",
+    "service": "public-api-alb",
+    "owner_team": "Cloud Platform",
+    "description": "Target health checks are failing after security group change.",
+    "logs": ["load balancer target failed health check", "network acl update completed"],
+    "metrics": {"unhealthy_targets": 6},
+    "tags": ["network", "load-balancer"]
+  },
+  "min_risk_score": 35,
+  "allowed_statuses": ["investigating", "degraded", "major_incident"],
+  "required_evidence": ["health"],
+  "required_actions": ["load balancer"]
+}

@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from app.models.schemas import RetrievedDocument
+from app.rag.uploaded_store import UPLOADED_DOCUMENTS
 
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_.:-]+")
 
@@ -28,8 +29,16 @@ class LocalVectorStore:
     def search(self, query: str, top_k: int = 5) -> list[RetrievedDocument]:
         query_vector = Counter(tokenize(query))
         scored = []
-        for doc in self.documents:
-            score = self._cosine_similarity(query_vector, self._doc_vectors[doc["id"]])
+        all_documents = [*self.documents, *UPLOADED_DOCUMENTS]
+        doc_vectors = {
+            **self._doc_vectors,
+            **{
+                doc["id"]: Counter(tokenize(f"{doc['title']} {doc['content']} {' '.join(doc['tags'])}"))
+                for doc in UPLOADED_DOCUMENTS
+            },
+        }
+        for doc in all_documents:
+            score = self._cosine_similarity(query_vector, doc_vectors[doc["id"]])
             if score > 0:
                 scored.append((score, doc))
 

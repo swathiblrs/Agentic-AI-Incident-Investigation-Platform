@@ -25,6 +25,10 @@ class AlertTriageAgent(InvestigationAgent):
         if alert.technique:
             score += 10
             signals.append(f"mapped to ATT&CK {alert.technique}")
+        raw_text = " ".join(str(event).lower() for event in alert.raw_events)
+        if "password-spray" in alert.tags or "brute-force" in alert.tags or raw_text.count("authentication.failed") >= 3:
+            score += 18
+            signals.append("password spray or brute-force pattern")
 
         state.risk_score += score
         state.timeline.append(f"Triage classified alert '{alert.title}' at initial risk {score}.")

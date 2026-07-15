@@ -1,0 +1,19 @@
+{
+  "name": "it email delivery delay",
+  "incident": {
+    "title": "Email delivery delays for finance team",
+    "domain": "it",
+    "severity": "medium",
+    "source": "service-desk",
+    "service": "email",
+    "owner_team": "IT Operations",
+    "description": "Finance users report delayed inbound email and intermittent access errors.",
+    "logs": ["email gateway error retry queue increasing", "user access failed intermittently"],
+    "metrics": {"queue_depth": 12000},
+    "tags": ["email", "access"]
+  },
+  "min_risk_score": 35,
+  "allowed_statuses": ["investigating", "degraded", "major_incident"],
+  "required_evidence": ["email"],
+  "required_actions": ["workaround"]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "data model drift investigation",
+  "incident": {
+    "title": "Fraud model feature drift detected",
+    "domain": "data",
+    "severity": "medium",
+    "source": "ml-monitor",
+    "service": "fraud-features",
+    "owner_team": "ML Platform",
+    "description": "Feature distribution drift detected after upstream source freshness issue.",
+    "logs": ["drift monitor failed threshold feature=device_age", "pipeline freshness delayed"],
+    "metrics": {"drift_score": 0.41},
+    "tags": ["drift", "pipeline"]
+  },
+  "min_risk_score": 45,
+  "allowed_statuses": ["investigating", "degraded", "major_incident"],
+  "required_evidence": ["drift"],
+  "required_actions": ["downstream"]
+}

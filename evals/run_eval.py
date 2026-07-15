@@ -22,16 +22,21 @@ def main() -> None:
     results = []
 
     for case in cases:
-        if "alert_file" in case:
-            alert = SecurityAlert.model_validate(
+        if "alert_file" in case or "alert" in case:
+            payload = (
                 json.loads(Path(case["alert_file"]).read_text(encoding="utf-8"))
+                if "alert_file" in case
+                else case["alert"]
             )
+            alert = SecurityAlert.model_validate(payload)
             report = security_graph.investigate(alert)
             actions = " ".join(action.action for action in report.recommended_actions)
+            evidence = " ".join(item.value for item in report.evidence)
             passed = (
                 report.risk_score >= case["min_risk_score"]
                 and report.verdict.value in case["allowed_verdicts"]
                 and all(required in actions for required in case["required_actions"])
+                and all(required.lower() in evidence.lower() for required in case.get("required_evidence", []))
             )
             results.append(
                 {
@@ -42,15 +47,20 @@ def main() -> None:
                 }
             )
         else:
-            incident = IncidentInput.model_validate(
+            payload = (
                 json.loads(Path(case["incident_file"]).read_text(encoding="utf-8"))
+                if "incident_file" in case
+                else case["incident"]
             )
+            incident = IncidentInput.model_validate(payload)
             report = generic_graph.investigate(incident)
             actions = " ".join(action.action.lower() for action in report.recommended_actions)
+            evidence = " ".join(item.value.lower() for item in report.evidence)
             passed = (
                 report.risk_score >= case["min_risk_score"]
                 and report.status.value in case["allowed_statuses"]
                 and all(required.lower() in actions for required in case["required_actions"])
+                and all(required.lower() in evidence for required in case.get("required_evidence", []))
             )
             results.append(
                 {

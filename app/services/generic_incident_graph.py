@@ -55,14 +55,35 @@ class GenericIncidentGraph:
         graph = StateGraph(GenericIncidentState)
         graph.add_node("retrieve_context", self._retrieve_context)
         graph.add_node("classify_incident", self._classify_incident)
+        graph.add_node("soc_path", self._domain_path("SOC security"))
+        graph.add_node("sre_path", self._domain_path("SRE production"))
+        graph.add_node("cloud_path", self._domain_path("cloud infrastructure"))
+        graph.add_node("data_path", self._domain_path("data engineering"))
+        graph.add_node("it_path", self._domain_path("IT operations"))
         graph.add_node("collect_evidence", self._collect_evidence)
         graph.add_node("llm_reasoning", self._llm_reasoning)
         graph.add_node("recommend_response", self._recommend_response)
 
         graph.add_edge(START, "retrieve_context")
         graph.add_edge("retrieve_context", "classify_incident")
-        graph.add_edge("classify_incident", "collect_evidence")
-        graph.add_edge("collect_evidence", "llm_reasoning")
+        graph.add_conditional_edges(
+            "classify_incident",
+            self._route_domain,
+            {
+                "soc_path": "soc_path",
+                "sre_path": "sre_path",
+                "cloud_path": "cloud_path",
+                "data_path": "data_path",
+                "it_path": "it_path",
+            },
+        )
+        for node in ("soc_path", "sre_path", "cloud_path", "data_path", "it_path"):
+            graph.add_edge(node, "collect_evidence")
+        graph.add_conditional_edges(
+            "collect_evidence",
+            self._route_after_evidence,
+            {"llm_reasoning": "llm_reasoning", "recommend_response": "recommend_response"},
+        )
         graph.add_edge("llm_reasoning", "recommend_response")
         graph.add_edge("recommend_response", END)
         return graph.compile()
@@ -162,14 +183,14 @@ class GenericIncidentGraph:
 
     def _llm_reasoning(self, state: GenericIncidentState) -> GenericIncidentState:
         pseudo_alert = self._incident_to_security_alert(state.incident)
-        analysis = self.llm.analyze_alert(pseudo_alert, state.references)
+        analysis = self.llm.analyze_alert(pseudo_alert, state.references, domain=state.incident.domain)
         state.timeline.append("LLM reasoning generated a grounded multi-domain assessment.")
         state.findings.append(
             AgentFinding(
                 agent="llm_reasoning",
-                summary=analysis,
-                confidence=0.68,
-                evidence=[analysis],
+                summary=analysis.summary,
+                confidence=analysis.confidence,
+                evidence=[*analysis.likely_causes, *analysis.recommended_next_steps],
                 references=state.references[:3],
             )
         )
@@ -204,8 +225,36 @@ class GenericIncidentGraph:
             ],
         }[state.incident.domain]
         state.enrichment["recommended_action_text"] = actions
+        if state.risk_score >= 85:
+            actions.insert(0, "Escalate to the incident commander and notify the owning response channel.")
         state.timeline.append("Prepared domain-specific response recommendations.")
         return state
+
+    @staticmethod
+    def _route_domain(state: GenericIncidentState) -> str:
+        return {
+            IncidentDomain.security: "soc_path",
+            IncidentDomain.production: "sre_path",
+            IncidentDomain.cloud: "cloud_path",
+            IncidentDomain.data: "data_path",
+            IncidentDomain.it: "it_path",
+        }[state.incident.domain]
+
+    @staticmethod
+    def _domain_path(label: str):
+        def route(state: GenericIncidentState) -> GenericIncidentState:
+            state.timeline.append(f"Routed incident through {label} investigation path.")
+            state.enrichment["domain_path"] = label
+            return state
+
+        return route
+
+    @staticmethod
+    def _route_after_evidence(state: GenericIncidentState) -> str:
+        if state.risk_score < 35:
+            state.timeline.append("Skipped live LLM reasoning for low-risk incident path.")
+            return "recommend_response"
+        return "llm_reasoning"
 
     @staticmethod
     def _status_for_score(score: int) -> IncidentStatus:

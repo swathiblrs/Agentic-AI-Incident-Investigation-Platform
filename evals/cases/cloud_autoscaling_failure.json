@@ -1,0 +1,20 @@
+{
+  "name": "cloud autoscaling failure",
+  "incident": {
+    "title": "Cluster capacity failed to scale",
+    "domain": "cloud",
+    "severity": "high",
+    "source": "cloudwatch",
+    "service": "eks-payments",
+    "owner_team": "Cloud Platform",
+    "description": "CPU is saturated and autoscaling failed due to quota.",
+    "logs": ["autoscaling error quota exceeded", "node cpu utilization above 90 percent"],
+    "metrics": {"cpu_percent": 94, "pending_pods": 38},
+    "events": [{"event": "autoscaling.failed", "reason": "quota exceeded"}],
+    "tags": ["cpu", "quota", "autoscaling"]
+  },
+  "min_risk_score": 60,
+  "allowed_statuses": ["degraded", "major_incident"],
+  "required_evidence": ["quota"],
+  "required_actions": ["quota", "capacity"]
+}

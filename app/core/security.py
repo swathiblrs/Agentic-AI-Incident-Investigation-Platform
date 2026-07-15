@@ -9,13 +9,24 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.models.schemas import IncidentDomain, UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+ROLE_DOMAIN_ACCESS = {
+    UserRole.security_analyst: {IncidentDomain.security},
+    UserRole.sre: {IncidentDomain.production, IncidentDomain.cloud},
+    UserRole.data_engineer: {IncidentDomain.data},
+    UserRole.it_ops: {IncidentDomain.it},
+    UserRole.admin: set(IncidentDomain),
+}
 
 
 class AuthRequest(BaseModel):
     username: str
     password: str
+    role: UserRole = UserRole.admin
 
 
 class TokenResponse(BaseModel):
@@ -25,13 +36,15 @@ class TokenResponse(BaseModel):
 
 class CurrentUser(BaseModel):
     username: str
+    role: UserRole = UserRole.admin
 
 
-def create_access_token(username: str) -> str:
+def create_access_token(username: str, role: UserRole = UserRole.admin) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     payload = {
         "sub": username,
+        "role": role.value,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=settings.jwt_expire_minutes)).timestamp()),
     }
@@ -48,7 +61,7 @@ def get_current_user(
 ) -> CurrentUser:
     settings = get_settings()
     if not settings.auth_required:
-        return CurrentUser(username="local-dev")
+        return CurrentUser(username="local-dev", role=UserRole.admin)
 
     if credentials is None:
         raise HTTPException(
@@ -73,4 +86,18 @@ def get_current_user(
     username = payload.get("sub")
     if not isinstance(username, str) or not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject.")
-    return CurrentUser(username=username)
+    role_value = payload.get("role", UserRole.admin.value)
+    try:
+        role = UserRole(role_value)
+    except ValueError:
+        role = UserRole.admin
+    return CurrentUser(username=username, role=role)
+
+
+def ensure_domain_access(user: CurrentUser, domain: IncidentDomain) -> None:
+    allowed = ROLE_DOMAIN_ACCESS[user.role]
+    if domain not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Role {user.role.value} cannot access {domain.value} incidents.",
+        )

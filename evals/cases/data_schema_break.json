@@ -1,0 +1,19 @@
+{
+  "name": "data schema compatibility failure",
+  "incident": {
+    "title": "Revenue pipeline failed schema validation",
+    "domain": "data",
+    "severity": "high",
+    "source": "airflow",
+    "service": "revenue-daily",
+    "owner_team": "Data Engineering",
+    "description": "Pipeline failed because source schema changed and downstream dashboard is stale.",
+    "logs": ["pipeline failed schema validation missing column customer_id", "quality check failed"],
+    "metrics": {"freshness_lag_minutes": 180},
+    "tags": ["pipeline", "schema", "quality"]
+  },
+  "min_risk_score": 60,
+  "allowed_statuses": ["degraded", "major_incident"],
+  "required_evidence": ["schema"],
+  "required_actions": ["downstream", "Backfill"]
+}

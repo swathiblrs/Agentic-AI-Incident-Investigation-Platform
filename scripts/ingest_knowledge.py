@@ -12,6 +12,21 @@ from app.rag.vector_store import LocalVectorStore
 from app.services.llm import OllamaService
 
 
+def _domain_for_tags(tags: list[str]) -> str:
+    tag_set = set(tags)
+    if {"account-takeover", "identity", "T1078"} & tag_set:
+        return "security"
+    if {"production", "sre", "outage"} & tag_set:
+        return "production"
+    if {"cloud", "infrastructure"} & tag_set:
+        return "cloud"
+    if {"data", "pipeline"} & tag_set:
+        return "data"
+    if {"it", "vpn", "email"} & tag_set:
+        return "it"
+    return "security"
+
+
 def main() -> None:
     settings = get_settings()
     store = LocalVectorStore(Path("app/data/knowledge_base"))
@@ -25,14 +40,15 @@ def main() -> None:
                 vector = "[" + ",".join(str(value) for value in embedding) + "]"
                 cursor.execute(
                     """
-                    INSERT INTO security_documents (id, title, source, content, tags, embedding)
-                    VALUES (%s, %s, %s, %s, %s, %s::vector)
+                    INSERT INTO security_documents (id, title, source, content, tags, embedding, domain)
+                    VALUES (%s, %s, %s, %s, %s, %s::vector, %s)
                     ON CONFLICT (id) DO UPDATE SET
                       title = EXCLUDED.title,
                       source = EXCLUDED.source,
                       content = EXCLUDED.content,
                       tags = EXCLUDED.tags,
-                      embedding = EXCLUDED.embedding
+                      embedding = EXCLUDED.embedding,
+                      domain = EXCLUDED.domain
                     """,
                     (
                         document["id"],
@@ -41,6 +57,7 @@ def main() -> None:
                         content,
                         document["tags"],
                         vector,
+                        _domain_for_tags(document["tags"]),
                     ),
                 )
         connection.commit()

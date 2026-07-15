@@ -23,6 +23,27 @@ class IncidentDomain(StrEnum):
     it = "it"
 
 
+class UserRole(StrEnum):
+    security_analyst = "security_analyst"
+    sre = "sre"
+    data_engineer = "data_engineer"
+    it_ops = "it_ops"
+    admin = "admin"
+
+
+class IntegrationType(StrEnum):
+    splunk = "splunk"
+    sentinel = "sentinel"
+    okta = "okta"
+    crowdstrike = "crowdstrike"
+    datadog = "datadog"
+    grafana_loki = "grafana_loki"
+    cloudwatch = "cloudwatch"
+    jira = "jira"
+    servicenow = "servicenow"
+    slack = "slack"
+
+
 class Verdict(StrEnum):
     benign = "benign"
     suspicious = "suspicious"
@@ -72,6 +93,48 @@ class IncidentInput(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class IngestDocumentRequest(BaseModel):
+    title: str
+    content: str
+    source: str
+    domain: IncidentDomain
+    team: str | None = None
+    service: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    chunk_size: int = Field(default=900, ge=200, le=4000)
+    chunk_overlap: int = Field(default=120, ge=0, le=1000)
+
+
+class IngestLogsRequest(BaseModel):
+    source: str
+    domain: IncidentDomain
+    logs: list[str]
+    title: str = "Uploaded incident logs"
+    team: str | None = None
+    service: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    chunk_size: int = Field(default=1200, ge=200, le=5000)
+    chunk_overlap: int = Field(default=100, ge=0, le=1000)
+
+
+class IngestedChunk(BaseModel):
+    id: str
+    document_id: str
+    chunk_index: int
+    title: str
+    source: str
+    domain: IncidentDomain
+    team: str | None = None
+    service: str | None = None
+    created_at: datetime
+
+
+class IngestionResponse(BaseModel):
+    document_id: str
+    chunks: list[IngestedChunk]
+    stored_in_pgvector: bool
+
+
 class RetrievedDocument(BaseModel):
     id: str
     title: str
@@ -79,6 +142,10 @@ class RetrievedDocument(BaseModel):
     score: float
     content: str
     tags: list[str] = Field(default_factory=list)
+    domain: IncidentDomain | None = None
+    team: str | None = None
+    service: str | None = None
+    created_at: datetime | None = None
 
 
 class AgentFinding(BaseModel):
@@ -88,6 +155,13 @@ class AgentFinding(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     evidence: list[str] = Field(default_factory=list)
     references: list[RetrievedDocument] = Field(default_factory=list)
+
+
+class LLMReasoningResult(BaseModel):
+    summary: str
+    likely_causes: list[str] = Field(default_factory=list)
+    recommended_next_steps: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.65, ge=0, le=1)
 
 
 class EvidenceItem(BaseModel):
@@ -130,6 +204,42 @@ class IncidentReport(BaseModel):
     recommended_actions: list[RemediationStep]
     references: list[RetrievedDocument]
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class StoredReportSummary(BaseModel):
+    investigation_id: UUID
+    domain: IncidentDomain
+    title: str
+    status: str
+    risk_score: int
+    created_at: datetime
+
+
+class PostmortemReport(BaseModel):
+    investigation_id: UUID
+    title: str
+    summary: str
+    impact: str
+    timeline: list[str]
+    root_cause_hypothesis: str
+    contributing_factors: list[str]
+    corrective_actions: list[RemediationStep]
+    owners: list[str]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class IntegrationConfigRequest(BaseModel):
+    integration_type: IntegrationType
+    name: str
+    base_url: str | None = None
+    enabled: bool = True
+    default_domain: IncidentDomain | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrationConfigResponse(IntegrationConfigRequest):
+    id: str
+    status: str
 
 
 class InvestigationRequest(BaseModel):

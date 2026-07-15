@@ -15,7 +15,8 @@ class PgVectorStore:
         embedding = self.embeddings.embed(query)
         vector = "[" + ",".join(str(value) for value in embedding[:384]) + "]"
         sql = """
-            SELECT id, title, source, content, tags, 1 - (embedding <=> %s::vector) AS score
+            SELECT id, title, source, content, tags, 1 - (embedding <=> %s::vector) AS score,
+                   domain, team, service, created_at
             FROM security_documents
             WHERE embedding IS NOT NULL
             ORDER BY embedding <=> %s::vector
@@ -34,6 +35,10 @@ class PgVectorStore:
                 content=row[3],
                 tags=list(row[4] or []),
                 score=round(float(row[5] or 0), 4),
+                domain=row[6],
+                team=row[7],
+                service=row[8],
+                created_at=row[9],
             )
             for row in rows
         ]

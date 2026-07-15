@@ -1,0 +1,19 @@
+{
+  "name": "production queue backlog",
+  "incident": {
+    "title": "Worker queue backlog delaying notifications",
+    "domain": "production",
+    "severity": "medium",
+    "source": "grafana",
+    "service": "notification-worker",
+    "owner_team": "Messaging SRE",
+    "description": "Notification jobs are delayed and queue depth is growing.",
+    "logs": ["notification-worker error job failed retry exhausted", "queue latency increasing"],
+    "metrics": {"queue_depth": 42000, "oldest_message_age_minutes": 38},
+    "tags": ["latency", "queue"]
+  },
+  "min_risk_score": 45,
+  "allowed_statuses": ["investigating", "degraded", "major_incident"],
+  "required_evidence": ["queue"],
+  "required_actions": ["dashboards"]
+}

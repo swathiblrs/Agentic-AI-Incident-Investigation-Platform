@@ -13,8 +13,10 @@ The platform can:
 - Analyze security alerts, production errors, cloud events, data pipeline failures, and IT incidents
 - Retrieve relevant runbooks, security playbooks, MITRE ATT&CK notes, and past incidents
 - Route incidents through domain-specific LangGraph workflows
+- Upload logs and runbooks through the API for chunking, embeddings, and retrieval
 - Collect evidence from logs, metrics, events, and alert payloads
 - Produce structured reports with risk/status, timeline, evidence, references, and recommended actions
+- Generate postmortems after investigations
 - Maintain conversation memory across analyst sessions
 
 ## 🏗️ Architecture Overview
@@ -32,6 +34,7 @@ Core stack:
 - FastAPI for API backend
 - LangGraph for multi-step investigation workflows
 - Ollama for local LLM reasoning and embeddings with deterministic fallback
+- Optional OpenAI-compatible and Anthropic-compatible LLM provider switching
 - PostgreSQL + pgvector for vector search
 - Redis for session memory and caching
 - JWT authentication for protected investigation endpoints
@@ -40,6 +43,7 @@ Core stack:
 - Prometheus + Grafana for monitoring
 - Docker for local containerization
 - AWS-ready deployment templates that cost nothing until applied
+- Lightweight built-in dashboard at `/api/dashboard`
 
 ## 🌐 Supported Domains
 
@@ -57,6 +61,8 @@ Core stack:
 
 - Security-specific workflow for alert triage, threat enrichment, evidence collection, and remediation
 - Generic incident workflow for production, cloud, data, and IT incidents
+- Conditional domain routing through SOC, SRE, cloud, data, and IT graph paths
+- Low-risk incidents can skip live LLM reasoning; high-risk incidents add escalation recommendations
 - Domain-specific status or verdict generation
 - RAG-grounded reasoning before response recommendations
 - Conversation memory per analyst session using Redis with in-memory fallback
@@ -73,12 +79,18 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Past incident archive examples
 - Ollama embedding generation for local semantic indexing
 - PostgreSQL + pgvector retrieval runtime
+- API ingestion for uploaded logs and runbooks
+- Local in-memory searchable fallback for uploaded chunks when Postgres is disabled
 - Knowledge-base ingestion script for indexing playbooks and runbooks
 
 ### ⚙️ Production Backend
 
 - FastAPI REST API
 - JWT token endpoint and protected investigation routes
+- Role-based access control for `security_analyst`, `sre`, `data_engineer`, `it_ops`, and `admin`
+- Report persistence with Postgres support and in-memory fallback
+- Integration registry stubs for Splunk, Sentinel, Okta, CrowdStrike, Datadog, Loki, CloudWatch, Jira, ServiceNow, and Slack
+- Postmortem generation from stored reports
 - Typed request and response models
 - Health and metrics endpoints
 - Input validation with Pydantic
@@ -93,6 +105,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Grafana provisioning included
 - Optional Langfuse tracing endpoint configuration
 - pytest-based evaluation framework with JSON reports
+- 12 cross-domain eval cases covering expected status/verdict, evidence, and actions
 
 ### ⚡ Performance & Reliability
 
@@ -101,6 +114,7 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Ollama calls automatically fall back to deterministic local reasoning when Ollama is unavailable
 - Makefile and uv workflow for repeatable local commands
 - AWS-ready deployment templates under `infra/aws/`
+- API dashboard for submitting incidents, viewing reports, copying actions, and browsing stored investigations
 
 ## 💡 Example Use Cases
 
@@ -125,8 +139,8 @@ app/
  │    ├── knowledge_base/ # Security, production, cloud, data, and IT runbooks
  │    └── sample_alerts/  # Demo security and production incidents
  ├── models/             # Pydantic schemas and LangGraph state models
- ├── rag/                # Retrieval pipeline
- ├── services/           # Security and generic incident LangGraph workflows
+ ├── rag/                # Retrieval pipeline and uploaded in-memory document store
+ ├── services/           # Workflows, ingestion, persistence, integrations, postmortems
  └── storage/            # PostgreSQL + pgvector schema and runtime adapter
 
 scripts/                 # CLI demo and ingestion scripts
@@ -187,8 +201,14 @@ GET  /api/health
 GET  /api/sample-alert
 POST /api/investigate
 POST /api/incidents/investigate
+POST /api/ingest/document
+POST /api/ingest/logs
+GET  /api/reports
+POST /api/reports/{investigation_id}/postmortem
+POST /api/integrations
 GET  /api/sessions/{session_id}/memory
 GET  /api/metrics
+GET  /api/dashboard
 ```
 
 Run sample investigations:
@@ -238,6 +258,10 @@ The test suite validates:
 - Security alert investigation workflow
 - Generic production incident workflow
 - FastAPI investigation endpoints
+- Document ingestion and local retrieval support
+- Report persistence and postmortem generation
+- Integration registry behavior
+- Role-based access control
 - Risk/status generation
 - Presence of references and remediation actions
 - JWT authentication and session memory
@@ -267,13 +291,11 @@ These files are free to keep in the repo. They only cost money if you intentiona
 
 ## 🔮 Future Improvements
 
-- Add real SIEM integrations such as Splunk, Microsoft Sentinel, and Elastic
-- Add production observability integrations such as Datadog, Grafana Loki, CloudWatch, and OpenTelemetry
-- Add IAM integrations such as Okta, Entra ID, and Google Workspace
-- Add larger multi-domain evaluation datasets
+- Replace integration stubs with live vendor adapters and OAuth/secret management
+- Add larger multi-domain evaluation datasets from real incident templates
 - Add analyst feedback loops for domain-specific scoring calibration
-- Persist investigation history in PostgreSQL
-- Add Slack, Jira, PagerDuty, and ServiceNow handoff actions
+- Add richer frontend filtering, charts, and collaborative incident rooms
+- Add full Terraform ECS/RDS/ElastiCache modules when ready to deploy
 
 ## 🙌 Acknowledgements
 

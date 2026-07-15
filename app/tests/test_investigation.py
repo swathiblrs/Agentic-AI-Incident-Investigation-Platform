@@ -97,3 +97,77 @@ def test_generic_incident_endpoint() -> None:
     body = response.json()
     assert body["risk_score"] >= 60
     assert body["recommended_actions"]
+
+
+def test_ingestion_reports_postmortem_and_integrations() -> None:
+    client = TestClient(app)
+    token = client.post(
+        "/api/auth/token",
+        json={"username": "analyst", "password": "analyst", "role": "admin"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    ingest_response = client.post(
+        "/api/ingest/document",
+        json={
+            "title": "Checkout rollback runbook",
+            "content": "If 503 errors increase after deployment, inspect dashboards and rollback.",
+            "source": "unit-test",
+            "domain": "production",
+            "team": "SRE",
+            "service": "checkout-api",
+            "tags": ["production", "rollback"],
+        },
+        headers=headers,
+    )
+    assert ingest_response.status_code == 200
+    assert ingest_response.json()["chunks"]
+
+    investigation_response = client.post(
+        "/api/incidents/investigate",
+        json={"incident": load_sample_incident().model_dump(mode="json")},
+        headers=headers,
+    )
+    assert investigation_response.status_code == 200
+    investigation_id = investigation_response.json()["investigation_id"]
+
+    reports_response = client.get("/api/reports", headers=headers)
+    assert reports_response.status_code == 200
+    assert any(report["investigation_id"] == investigation_id for report in reports_response.json())
+
+    postmortem_response = client.post(f"/api/reports/{investigation_id}/postmortem", headers=headers)
+    assert postmortem_response.status_code == 200
+    assert postmortem_response.json()["corrective_actions"]
+
+    integration_response = client.post(
+        "/api/integrations",
+        json={
+            "integration_type": "slack",
+            "name": "Incident Channel",
+            "base_url": "https://hooks.slack.example.local",
+            "default_domain": "production",
+        },
+        headers=headers,
+    )
+    assert integration_response.status_code == 200
+    integration_id = integration_response.json()["id"]
+
+    preview_response = client.post(f"/api/integrations/{integration_id}/collect-preview", headers=headers)
+    assert preview_response.status_code == 200
+    assert preview_response.json()["status"] == "preview"
+
+
+def test_domain_role_access_control() -> None:
+    client = TestClient(app)
+    token = client.post(
+        "/api/auth/token",
+        json={"username": "analyst", "password": "analyst", "role": "security_analyst"},
+    ).json()["access_token"]
+
+    response = client.post(
+        "/api/incidents/investigate",
+        json={"incident": load_sample_incident().model_dump(mode="json")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403

@@ -89,10 +89,10 @@ class InvestigationGraph:
         state.findings.append(
             AgentFinding(
                 agent="llm_reasoning",
-                summary=analysis,
+                summary=analysis.summary,
                 risk_delta=0,
-                confidence=0.7,
-                evidence=[analysis],
+                confidence=analysis.confidence,
+                evidence=[*analysis.likely_causes, *analysis.recommended_next_steps],
                 references=state.references[:3],
             )
         )

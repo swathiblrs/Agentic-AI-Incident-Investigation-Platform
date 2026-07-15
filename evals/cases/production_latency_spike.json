@@ -1,0 +1,20 @@
+{
+  "name": "production latency spike after deploy",
+  "incident": {
+    "title": "API latency spike after deploy",
+    "domain": "production",
+    "severity": "high",
+    "source": "datadog",
+    "service": "orders-api",
+    "owner_team": "Orders SRE",
+    "description": "p95 latency increased after deployment and customers are timing out.",
+    "logs": ["orders-api error timeout waiting for inventory-api", "orders-api latency p95 above threshold"],
+    "metrics": {"p95_latency_ms": 3100, "error_rate_percent": 8.2},
+    "events": [{"event": "deployment.completed", "version": "orders-api@42"}],
+    "tags": ["latency", "recent-deploy", "customer-impact"]
+  },
+  "min_risk_score": 60,
+  "allowed_statuses": ["degraded", "major_incident"],
+  "required_evidence": ["timeout"],
+  "required_actions": ["dashboards", "rollback"]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "it vpn access outage",
+  "incident": {
+    "title": "Users unable to connect to VPN",
+    "domain": "it",
+    "severity": "high",
+    "source": "service-desk",
+    "service": "vpn",
+    "owner_team": "IT Operations",
+    "description": "Many users cannot access VPN after identity provider certificate rotation.",
+    "logs": ["vpn failed authentication certificate validation error", "user access failed"],
+    "metrics": {"affected_users": 230},
+    "tags": ["vpn", "identity", "access"]
+  },
+  "min_risk_score": 45,
+  "allowed_statuses": ["investigating", "degraded", "major_incident"],
+  "required_evidence": ["vpn"],
+  "required_actions": ["workaround", "IT service"]
+}

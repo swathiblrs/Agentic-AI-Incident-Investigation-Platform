@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_llm_model: str = "llama3.1"
     ollama_embed_model: str = "nomic-embed-text"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com/v1"
+    anthropic_model: str = "claude-3-5-haiku-latest"
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"
     langfuse_public_key: str = ""

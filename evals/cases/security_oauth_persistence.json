@@ -1,0 +1,22 @@
+{
+  "name": "security suspicious oauth persistence",
+  "alert": {
+    "title": "Suspicious OAuth grant after unusual login",
+    "severity": "high",
+    "source": "entra-id",
+    "user": "casey.ng@example.com",
+    "ip_address": "203.0.113.44",
+    "geo": "Unknown",
+    "technique": "T1078",
+    "tags": ["identity", "new-country"],
+    "description": "New OAuth application consent immediately after a login from unfamiliar infrastructure.",
+    "raw_events": [
+      {"event": "user.authentication.succeeded", "ip": "203.0.113.44", "device": "unknown"},
+      {"event": "oauth.app.consent.granted", "app": "Invoice Reader"}
+    ]
+  },
+  "min_risk_score": 75,
+  "allowed_verdicts": ["likely_compromise", "confirmed_incident"],
+  "required_evidence": ["oauth"],
+  "required_actions": ["Revoke active sessions", "OAuth"]
+}
