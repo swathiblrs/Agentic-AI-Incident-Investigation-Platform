@@ -69,7 +69,7 @@ async def investigate(
     ensure_domain_access(current_user, domain=IncidentDomain.security)
     if request.session_id:
         memory.append(request.session_id, "user", request.alert.model_dump_json())
-    report = graph.investigate(request.alert)
+    report = await graph.investigate_async(request.alert, session_id=request.session_id)
     if not request.include_references:
         report.references = []
         for finding in report.findings:
@@ -89,7 +89,7 @@ async def investigate_incident(
     ensure_domain_access(current_user, request.incident.domain)
     if request.session_id:
         memory.append(request.session_id, "user", request.incident.model_dump_json())
-    report = generic_graph.investigate(request.incident)
+    report = await generic_graph.investigate_async(request.incident, session_id=request.session_id)
     if not request.include_references:
         report.references = []
         for finding in report.findings:
@@ -169,6 +169,19 @@ def list_integrations(_: CurrentUser = Depends(get_current_user)) -> list[Integr
     return integrations.list()
 
 
+@router.get("/integrations/catalog")
+def integration_catalog(_: CurrentUser = Depends(get_current_user)) -> list[dict[str, object]]:
+    return integrations.catalog()
+
+
+@router.get("/integrations/{integration_id}/health")
+def integration_health(
+    integration_id: str,
+    _: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    return integrations.health(integration_id)
+
+
 @router.post("/integrations/{integration_id}/collect-preview")
 def collect_integration_preview(
     integration_id: str,
@@ -183,6 +196,17 @@ def session_memory(
     _: CurrentUser = Depends(get_current_user),
 ) -> SessionMemoryResponse:
     return SessionMemoryResponse(session_id=session_id, messages=memory.get(session_id))
+
+
+@router.delete("/sessions/{session_id}")
+async def clear_session(
+    session_id: str,
+    _: CurrentUser = Depends(get_current_user),
+) -> dict[str, bool | str]:
+    memory.clear(session_id)
+    checkpoints_cleared = await graph.checkpoints.clear_thread(session_id)
+    await generic_graph.checkpoints.clear_thread(session_id)
+    return {"session_id": session_id, "memory_cleared": True, "langgraph_checkpoints_cleared": checkpoints_cleared}
 
 
 @router.get("/sample-alert", response_model=SecurityAlert)
@@ -211,55 +235,150 @@ def dashboard() -> HTMLResponse:
           <title>Incident Investigation Platform</title>
           <style>
             :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-            body { margin: 0; background: #f6f8fb; color: #172033; }
-            header { padding: 24px 32px; background: #101828; color: white; }
-            main { display: grid; grid-template-columns: 360px 1fr; gap: 24px; padding: 24px 32px; }
-            section { background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 18px; }
-            label { display: block; font-size: 13px; font-weight: 700; margin-top: 12px; }
+            body { margin: 0; background: #eef2f7; color: #172033; }
+            header { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 20px 28px; background: #101828; color: white; }
+            header h1 { margin: 0; font-size: 24px; }
+            header p { margin: 4px 0 0; color: #cbd5e1; }
+            main { padding: 20px 28px 32px; }
+            .shell { display: grid; grid-template-columns: 320px 1fr; gap: 18px; }
+            .panel { background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 16px; }
+            .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+            .tab { width: auto; padding: 9px 12px; background: #e8eef7; color: #1e293b; border: 1px solid #cbd5e1; }
+            .tab.active { background: #2563eb; color: white; border-color: #2563eb; }
+            .view { display: none; }
+            .view.active { display: block; }
+            label { display: block; font-size: 12px; font-weight: 750; margin-top: 10px; color: #334155; }
             input, select, textarea, button { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border-radius: 6px; border: 1px solid #b9c5d5; font: inherit; }
-            textarea { min-height: 130px; resize: vertical; }
-            button { background: #2563eb; color: white; border: 0; font-weight: 700; cursor: pointer; }
-            pre { white-space: pre-wrap; background: #0f172a; color: #dbeafe; border-radius: 8px; padding: 16px; overflow: auto; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-            .metric { border: 1px solid #d9e1ec; border-radius: 8px; padding: 12px; }
-            .metric strong { display: block; font-size: 22px; }
-            @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 20px 16px; } }
+            textarea { min-height: 116px; resize: vertical; }
+            button { background: #2563eb; color: white; border: 0; font-weight: 750; cursor: pointer; }
+            button.secondary { background: #475569; }
+            button.ghost { background: white; color: #1e293b; border: 1px solid #cbd5e1; }
+            pre { white-space: pre-wrap; background: #0f172a; color: #dbeafe; border-radius: 8px; padding: 14px; overflow: auto; min-height: 240px; }
+            .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+            .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+            .metric { border: 1px solid #d9e1ec; border-radius: 8px; padding: 12px; background: #f8fafc; }
+            .metric span { display: block; font-size: 12px; color: #64748b; }
+            .metric strong { display: block; font-size: 22px; margin-top: 4px; }
+            .list { display: grid; gap: 8px; margin-top: 10px; }
+            .item { border: 1px solid #d9e1ec; border-radius: 8px; padding: 10px; background: #fbfdff; cursor: pointer; }
+            .item strong { display: block; }
+            .item small { color: #64748b; }
+            @media (max-width: 980px) { header { display: block; } .shell, .two { grid-template-columns: 1fr; } .grid { grid-template-columns: repeat(2, 1fr); } main { padding: 16px; } }
           </style>
         </head>
         <body>
           <header>
-            <h1>🚨 AI Incident Investigation Platform</h1>
-            <p>Submit incidents, inspect structured reports, and browse investigation outputs.</p>
+            <div>
+              <h1>🚨 AI Incident Investigation Platform</h1>
+              <p>Investigate incidents, ingest knowledge, inspect reports, and validate connector readiness.</p>
+            </div>
+            <div>
+              <input id="token" placeholder="Bearer token" />
+              <button onclick="demoAuth()">Demo Admin Auth</button>
+            </div>
           </header>
           <main>
-            <section>
-              <h2>Submit Incident</h2>
-              <label>Token</label>
-              <input id="token" placeholder="Paste bearer token or click demo auth" />
-              <button onclick="demoAuth()">Demo Auth</button>
-              <label>Domain</label>
-              <select id="domain"><option>production</option><option>security</option><option>cloud</option><option>data</option><option>it</option></select>
-              <label>Title</label>
-              <input id="title" value="Checkout API returning elevated 503 errors" />
-              <label>Description / Logs</label>
-              <textarea id="description">checkout-api ERROR upstream payment-gateway timeout
+            <div class="tabs">
+              <button class="tab active" onclick="showView('investigate', this)">Investigate</button>
+              <button class="tab" onclick="showView('reports', this); loadReports()">Reports</button>
+              <button class="tab" onclick="showView('ingest', this)">Ingest</button>
+              <button class="tab" onclick="showView('integrations', this); loadCatalog(); loadIntegrations()">Integrations</button>
+            </div>
+            <div class="shell">
+              <section class="panel">
+                <div class="grid">
+                  <div class="metric"><span>Status</span><strong id="status">-</strong></div>
+                  <div class="metric"><span>Risk</span><strong id="risk">-</strong></div>
+                  <div class="metric"><span>Actions</span><strong id="actions">-</strong></div>
+                  <div class="metric"><span>Refs</span><strong id="refs">-</strong></div>
+                </div>
+                <div id="timeline" class="list"></div>
+              </section>
+              <section class="panel">
+                <div id="investigate" class="view active">
+                  <h2>Submit Incident</h2>
+                  <div class="two">
+                    <div>
+                      <label>Domain</label>
+                      <select id="domain"><option>production</option><option>security</option><option>cloud</option><option>data</option><option>it</option></select>
+                    </div>
+                    <div>
+                      <label>Severity</label>
+                      <select id="severity"><option>high</option><option>critical</option><option>medium</option><option>low</option></select>
+                    </div>
+                  </div>
+                  <label>Title</label>
+                  <input id="title" value="Checkout API returning elevated 503 errors" />
+                  <label>Description / Logs</label>
+                  <textarea id="description">checkout-api ERROR upstream payment-gateway timeout
 checkout-api failed request status=503 route=/checkout</textarea>
-              <button onclick="investigate()">Investigate</button>
-            </section>
-            <section>
-              <h2>Report</h2>
-              <div class="grid">
-                <div class="metric"><span>Status</span><strong id="status">-</strong></div>
-                <div class="metric"><span>Risk</span><strong id="risk">-</strong></div>
-                <div class="metric"><span>Actions</span><strong id="actions">-</strong></div>
-              </div>
-              <pre id="output">No report yet.</pre>
-              <button onclick="copyActions()">Copy Recommended Actions</button>
-              <button onclick="loadReports()">Browse Past Reports</button>
-            </section>
+                  <button onclick="investigate()">Investigate</button>
+                </div>
+                <div id="reports" class="view">
+                  <h2>Reports</h2>
+                  <button class="ghost" onclick="loadReports()">Refresh Reports</button>
+                  <div id="reportList" class="list"></div>
+                </div>
+                <div id="ingest" class="view">
+                  <h2>Ingest Runbook or Logs</h2>
+                  <label>Title</label>
+                  <input id="ingestTitle" value="Checkout rollback runbook" />
+                  <label>Domain</label>
+                  <select id="ingestDomain"><option>production</option><option>security</option><option>cloud</option><option>data</option><option>it</option></select>
+                  <label>Source</label>
+                  <input id="ingestSource" value="dashboard-upload" />
+                  <label>Content</label>
+                  <textarea id="ingestContent">If checkout 503 errors increase after deployment, inspect payment dependencies, compare recent deploys, and rollback if customer impact continues.</textarea>
+                  <button onclick="ingestDocument()">Ingest Document</button>
+                </div>
+                <div id="integrations" class="view">
+                  <h2>Integrations</h2>
+                  <div class="two">
+                    <div>
+                      <label>Type</label>
+                      <select id="integrationType"></select>
+                    </div>
+                    <div>
+                      <label>Domain</label>
+                      <select id="integrationDomain"><option>security</option><option>production</option><option>cloud</option><option>data</option><option>it</option></select>
+                    </div>
+                  </div>
+                  <label>Name</label>
+                  <input id="integrationName" value="Primary evidence source" />
+                  <label>Base URL</label>
+                  <input id="integrationUrl" value="https://example.local" />
+                  <label>Metadata JSON</label>
+                  <textarea id="integrationMetadata">{"channel":"#incidents","project_key":"INC","region":"us-east-1","site":"us5","index":"main","sourcetype":"json"}</textarea>
+                  <button onclick="registerIntegration()">Register Dry-Run Connector</button>
+                  <div id="integrationList" class="list"></div>
+                </div>
+                <pre id="output">No report yet.</pre>
+                <div class="two">
+                  <button class="secondary" onclick="copyActions()">Copy Actions</button>
+                  <button class="secondary" onclick="generatePostmortem()">Generate Postmortem</button>
+                </div>
+              </section>
+            </div>
           </main>
           <script>
             let lastReport = null;
+            function authHeaders() { return {'Content-Type':'application/json', Authorization:'Bearer '+document.getElementById('token').value}; }
+            function showView(id, button) {
+              document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+              document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+              document.getElementById(id).classList.add('active');
+              button.classList.add('active');
+            }
+            function renderOutput(value) { document.getElementById('output').textContent = JSON.stringify(value, null, 2); }
+            function renderSummary(report) {
+              lastReport = report;
+              document.getElementById('status').textContent = report.status || report.verdict || '-';
+              document.getElementById('risk').textContent = String(report.risk_score || '-');
+              document.getElementById('actions').textContent = String((report.recommended_actions || []).length);
+              document.getElementById('refs').textContent = String((report.references || []).length);
+              document.getElementById('timeline').innerHTML = (report.timeline || []).slice(-5).map(item => `<div class="item"><small>${item}</small></div>`).join('');
+              renderOutput(report);
+            }
             async function demoAuth() {
               const res = await fetch('/api/auth/token', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:'analyst', password:'analyst', role:'admin'})});
               const body = await res.json();
@@ -269,17 +388,51 @@ checkout-api failed request status=503 route=/checkout</textarea>
               const domain = document.getElementById('domain').value;
               const title = document.getElementById('title').value;
               const description = document.getElementById('description').value;
-              const payload = {incident:{title, domain, severity:'high', source:'dashboard', service:'dashboard-input', description, logs:description.split('\\n'), tags:['dashboard']}};
-              const res = await fetch('/api/incidents/investigate', {method:'POST', headers:{'Content-Type':'application/json', Authorization:'Bearer '+document.getElementById('token').value}, body: JSON.stringify(payload)});
-              lastReport = await res.json();
-              document.getElementById('status').textContent = lastReport.status || lastReport.verdict || '-';
-              document.getElementById('risk').textContent = String(lastReport.risk_score || '-');
-              document.getElementById('actions').textContent = String((lastReport.recommended_actions || []).length);
-              document.getElementById('output').textContent = JSON.stringify(lastReport, null, 2);
+              const severity = document.getElementById('severity').value;
+              const payload = {incident:{title, domain, severity, source:'dashboard', service:'dashboard-input', description, logs:description.split('\\n'), tags:['dashboard']}};
+              const res = await fetch('/api/incidents/investigate', {method:'POST', headers:authHeaders(), body: JSON.stringify(payload)});
+              renderSummary(await res.json());
             }
             async function loadReports() {
               const res = await fetch('/api/reports', {headers:{Authorization:'Bearer '+document.getElementById('token').value}});
-              document.getElementById('output').textContent = JSON.stringify(await res.json(), null, 2);
+              const reports = await res.json();
+              document.getElementById('reportList').innerHTML = reports.map(report => `<div class="item" onclick="loadReport('${report.investigation_id}')"><strong>${report.title}</strong><small>${report.domain} · ${report.status} · risk ${report.risk_score}</small></div>`).join('');
+              renderOutput(reports);
+            }
+            async function loadReport(id) {
+              const res = await fetch('/api/reports/'+id, {headers:{Authorization:'Bearer '+document.getElementById('token').value}});
+              renderSummary(await res.json());
+            }
+            async function ingestDocument() {
+              const payload = {title:document.getElementById('ingestTitle').value, domain:document.getElementById('ingestDomain').value, source:document.getElementById('ingestSource').value, content:document.getElementById('ingestContent').value, tags:['dashboard']};
+              const res = await fetch('/api/ingest/document', {method:'POST', headers:authHeaders(), body: JSON.stringify(payload)});
+              renderOutput(await res.json());
+            }
+            async function loadCatalog() {
+              const res = await fetch('/api/integrations/catalog', {headers:{Authorization:'Bearer '+document.getElementById('token').value}});
+              const catalog = await res.json();
+              document.getElementById('integrationType').innerHTML = catalog.map(item => `<option value="${item.integration_type}">${item.integration_type} · ${item.category}</option>`).join('');
+            }
+            async function loadIntegrations() {
+              const res = await fetch('/api/integrations', {headers:{Authorization:'Bearer '+document.getElementById('token').value}});
+              const items = await res.json();
+              document.getElementById('integrationList').innerHTML = items.map(item => `<div class="item" onclick="selectIntegration('${item.id}')"><strong>${item.name}</strong><small>${item.integration_type} · ${item.status}</small></div>`).join('');
+            }
+            async function registerIntegration() {
+              const payload = {integration_type:document.getElementById('integrationType').value, name:document.getElementById('integrationName').value, base_url:document.getElementById('integrationUrl').value, default_domain:document.getElementById('integrationDomain').value, metadata:JSON.parse(document.getElementById('integrationMetadata').value)};
+              const res = await fetch('/api/integrations', {method:'POST', headers:authHeaders(), body: JSON.stringify(payload)});
+              renderOutput(await res.json());
+              await loadIntegrations();
+            }
+            async function selectIntegration(id) {
+              const health = await fetch('/api/integrations/'+id+'/health', {headers:{Authorization:'Bearer '+document.getElementById('token').value}});
+              const preview = await fetch('/api/integrations/'+id+'/collect-preview', {method:'POST', headers:{Authorization:'Bearer '+document.getElementById('token').value}});
+              renderOutput({health: await health.json(), preview: await preview.json()});
+            }
+            async function generatePostmortem() {
+              if (!lastReport?.investigation_id) return;
+              const res = await fetch('/api/reports/'+lastReport.investigation_id+'/postmortem', {method:'POST', headers:{Authorization:'Bearer '+document.getElementById('token').value}});
+              renderOutput(await res.json());
             }
             async function copyActions() {
               const text = (lastReport?.recommended_actions || []).map(a => `${a.priority}. ${a.action}`).join('\\n');
@@ -296,4 +449,3 @@ def _report_domain(report) -> IncidentDomain:
     if hasattr(report, "incident"):
         return report.incident.domain
     return IncidentDomain.security
-    ensure_domain_access,

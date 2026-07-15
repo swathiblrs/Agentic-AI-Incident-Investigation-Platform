@@ -19,6 +19,7 @@ from app.models.schemas import (
 )
 from app.models.state import InvestigationState
 from app.rag.retriever import SecurityKnowledgeRetriever
+from app.services.langgraph_checkpoint import LangGraphCheckpointManager
 from app.services.llm import OllamaService
 from app.services.tracing import LangfuseTracer
 
@@ -30,6 +31,8 @@ class InvestigationGraph:
         self.retriever = retriever or SecurityKnowledgeRetriever()
         self.llm = OllamaService()
         self.tracer = LangfuseTracer()
+        self.checkpoints = LangGraphCheckpointManager()
+        self._checkpoint_graph = None
         self.triage_agent = AlertTriageAgent()
         self.enrichment_agent = ThreatEnrichmentAgent()
         self.evidence_agent = EvidenceCollectorAgent()
@@ -60,7 +63,36 @@ class InvestigationGraph:
         INVESTIGATION_DURATION.observe(time.perf_counter() - started)
         return report
 
+    async def investigate_async(
+        self,
+        alert: SecurityAlert,
+        *,
+        session_id: str | None = None,
+    ) -> InvestigationReport:
+        if not session_id:
+            return self.investigate(alert)
+
+        started = time.perf_counter()
+        if self._checkpoint_graph is None:
+            self._checkpoint_graph = await self.checkpoints.compile_with_checkpointer(
+                self._build_graph_builder,
+                graph_name="security-investigation",
+            )
+        compiled_graph = self._checkpoint_graph or self.graph
+        state = InvestigationState.model_validate(
+            await compiled_graph.ainvoke(
+                InvestigationState(alert=alert),
+                config={"configurable": {"thread_id": session_id}},
+            )
+        )
+        report = self._report_from_state(state)
+        INVESTIGATION_DURATION.observe(time.perf_counter() - started)
+        return report
+
     def _build_graph(self):
+        return self._build_graph_builder().compile()
+
+    def _build_graph_builder(self):
         graph = StateGraph(InvestigationState)
         graph.add_node("retrieve_context", self._retrieve_context)
         graph.add_node("alert_triage", self.triage_agent.run)
@@ -76,7 +108,25 @@ class InvestigationGraph:
         graph.add_edge("evidence_collection", "llm_reasoning")
         graph.add_edge("llm_reasoning", "remediation_recommendation")
         graph.add_edge("remediation_recommendation", END)
-        return graph.compile()
+        return graph
+
+    def _report_from_state(self, state: InvestigationState) -> InvestigationReport:
+        state.risk_score = max(0, min(state.risk_score, 100))
+        verdict = self._verdict_for_score(state.risk_score)
+        report = InvestigationReport(
+            alert=state.alert,
+            verdict=verdict,
+            risk_score=state.risk_score,
+            executive_summary=self._summary(state.alert, verdict, state.risk_score),
+            timeline=state.timeline,
+            findings=state.findings,
+            evidence=state.evidence,
+            recommended_actions=self._build_actions(state),
+            references=state.references,
+        )
+        self.tracer.trace_investigation(report)
+        INVESTIGATIONS_TOTAL.labels(severity=state.alert.severity.value, verdict=verdict.value).inc()
+        return report
 
     def _retrieve_context(self, state: InvestigationState) -> InvestigationState:
         state.references = self.retriever.retrieve_for_alert(state.alert)

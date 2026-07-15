@@ -75,6 +75,20 @@ def test_investigate_endpoint() -> None:
     assert memory_response.status_code == 200
     assert len(memory_response.json()["messages"]) >= 2
 
+    clear_response = client.delete(
+        "/api/sessions/pytest-session",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert clear_response.status_code == 200
+    assert clear_response.json()["memory_cleared"] is True
+
+    cleared_memory_response = client.get(
+        "/api/sessions/pytest-session/memory",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cleared_memory_response.status_code == 200
+    assert cleared_memory_response.json()["messages"] == []
+
 
 def test_generic_incident_endpoint() -> None:
     client = TestClient(app)
@@ -147,15 +161,26 @@ def test_ingestion_reports_postmortem_and_integrations() -> None:
             "name": "Incident Channel",
             "base_url": "https://hooks.slack.example.local",
             "default_domain": "production",
+            "metadata": {"channel": "#incidents"},
         },
         headers=headers,
     )
     assert integration_response.status_code == 200
     integration_id = integration_response.json()["id"]
+    assert integration_response.json()["status"] == "ready"
+
+    catalog_response = client.get("/api/integrations/catalog", headers=headers)
+    assert catalog_response.status_code == 200
+    assert any(item["integration_type"] == "slack" for item in catalog_response.json())
+
+    health_response = client.get(f"/api/integrations/{integration_id}/health", headers=headers)
+    assert health_response.status_code == 200
+    assert health_response.json()["ready_for_live"] is True
 
     preview_response = client.post(f"/api/integrations/{integration_id}/collect-preview", headers=headers)
     assert preview_response.status_code == 200
     assert preview_response.json()["status"] == "preview"
+    assert "incident channel messages" in preview_response.json()["events"]
 
 
 def test_domain_role_access_control() -> None:
@@ -196,3 +221,35 @@ def test_llm_retry_policy_for_transient_provider_errors(monkeypatch) -> None:
 
     assert calls["count"] == 2
     assert result.summary == "ok"
+
+
+def test_openai_embedding_provider_path(monkeypatch) -> None:
+    service = OllamaService()
+    monkeypatch.setattr(service.settings, "llm_provider", "openai")
+    monkeypatch.setattr(service.settings, "openai_api_key", "test-key")
+
+    class FakeEmbeddingResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        @staticmethod
+        def json() -> dict:
+            return {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+
+    def fake_post(*args, **kwargs):
+        assert args[0].endswith("/embeddings")
+        assert kwargs["json"]["model"] == service.settings.openai_embed_model
+        assert kwargs["json"]["dimensions"] == service.settings.openai_embed_dimensions
+        return FakeEmbeddingResponse()
+
+    monkeypatch.setattr("app.services.llm.httpx.post", fake_post)
+
+    assert service.embed("login anomaly") == [0.1, 0.2, 0.3]
+
+
+def test_openai_provider_without_key_falls_back_to_local(monkeypatch) -> None:
+    service = OllamaService()
+    monkeypatch.setattr(service.settings, "llm_provider", "openai")
+    monkeypatch.setattr(service.settings, "openai_api_key", "")
+
+    assert service._effective_provider() == "ollama"

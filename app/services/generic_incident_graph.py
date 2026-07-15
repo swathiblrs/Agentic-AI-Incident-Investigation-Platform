@@ -17,6 +17,7 @@ from app.models.schemas import (
     RemediationStep,
 )
 from app.rag.retriever import SecurityKnowledgeRetriever
+from app.services.langgraph_checkpoint import LangGraphCheckpointManager
 from app.services.llm import OllamaService
 from app.services.tracing import LangfuseTracer
 
@@ -28,6 +29,8 @@ class GenericIncidentGraph:
         self.retriever = retriever or SecurityKnowledgeRetriever()
         self.llm = OllamaService()
         self.tracer = LangfuseTracer()
+        self.checkpoints = LangGraphCheckpointManager()
+        self._checkpoint_graph = None
         self.graph = self._build_graph()
 
     def investigate(self, incident: IncidentInput) -> IncidentReport:
@@ -51,7 +54,36 @@ class GenericIncidentGraph:
         INVESTIGATION_DURATION.observe(time.perf_counter() - started)
         return report
 
+    async def investigate_async(
+        self,
+        incident: IncidentInput,
+        *,
+        session_id: str | None = None,
+    ) -> IncidentReport:
+        if not session_id:
+            return self.investigate(incident)
+
+        started = time.perf_counter()
+        if self._checkpoint_graph is None:
+            self._checkpoint_graph = await self.checkpoints.compile_with_checkpointer(
+                self._build_graph_builder,
+                graph_name=f"{incident.domain.value}-incident-investigation",
+            )
+        compiled_graph = self._checkpoint_graph or self.graph
+        state = GenericIncidentState.model_validate(
+            await compiled_graph.ainvoke(
+                GenericIncidentState(incident=incident),
+                config={"configurable": {"thread_id": session_id}},
+            )
+        )
+        report = self._report_from_state(state)
+        INVESTIGATION_DURATION.observe(time.perf_counter() - started)
+        return report
+
     def _build_graph(self):
+        return self._build_graph_builder().compile()
+
+    def _build_graph_builder(self):
         graph = StateGraph(GenericIncidentState)
         graph.add_node("retrieve_context", self._retrieve_context)
         graph.add_node("classify_incident", self._classify_incident)
@@ -86,7 +118,22 @@ class GenericIncidentGraph:
         )
         graph.add_edge("llm_reasoning", "recommend_response")
         graph.add_edge("recommend_response", END)
-        return graph.compile()
+        return graph
+
+    def _report_from_state(self, state: GenericIncidentState) -> IncidentReport:
+        state.risk_score = max(0, min(state.risk_score, 100))
+        status = self._status_for_score(state.risk_score)
+        return IncidentReport(
+            incident=state.incident,
+            status=status,
+            risk_score=state.risk_score,
+            executive_summary=self._summary(state.incident, status, state.risk_score),
+            timeline=state.timeline,
+            findings=state.findings,
+            evidence=state.evidence,
+            recommended_actions=self._build_actions(state),
+            references=state.references,
+        )
 
     def _retrieve_context(self, state: GenericIncidentState) -> GenericIncidentState:
         state.references = self.retriever.retrieve_for_incident(state.incident)

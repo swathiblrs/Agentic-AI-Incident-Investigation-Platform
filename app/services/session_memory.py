@@ -43,6 +43,14 @@ class SessionMemory:
                 pass
         return list(self._fallback[session_id])
 
+    def clear(self, session_id: str) -> None:
+        if self.redis is not None:
+            try:
+                self.redis.delete(self._key(session_id))
+            except RedisError:
+                pass
+        self._fallback.pop(session_id, None)
+
     @staticmethod
     def _key(session_id: str) -> str:
         return f"security-agent:session:{session_id}"

@@ -1,7 +1,7 @@
 PYTHON ?= python
 ENV ?= development
 
-.PHONY: install dev test sample eval ingest docker-up docker-down docker-build-env docker-run-env eval-quick
+.PHONY: install dev test sample eval eval-cloud ingest docker-up docker-down docker-build-env docker-run-env eval-quick
 
 install:
 	uv sync
@@ -17,6 +17,8 @@ sample:
 
 eval:
 	uv run python evals/run_eval.py
+
+eval-cloud: eval
 
 eval-quick: eval
 

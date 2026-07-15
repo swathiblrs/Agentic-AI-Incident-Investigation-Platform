@@ -17,23 +17,44 @@ class OllamaService:
         self.settings = get_settings()
 
     def embed(self, text: str) -> list[float]:
-        if self.settings.llm_provider != "ollama":
-            return self._deterministic_embedding(text)
-
-        try:
-            response = self._with_retries(
-                lambda: httpx.post(
-                    f"{self.settings.ollama_base_url}/api/embeddings",
-                    json={"model": self.settings.ollama_embed_model, "prompt": text},
-                    timeout=10,
+        provider = self._effective_provider()
+        if provider == "openai":
+            try:
+                response = self._with_retries(
+                    lambda: httpx.post(
+                        f"{self.settings.openai_base_url.rstrip('/')}/embeddings",
+                        headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+                        json={
+                            "model": self.settings.openai_embed_model,
+                            "input": text,
+                            "dimensions": self.settings.openai_embed_dimensions,
+                        },
+                        timeout=30,
+                    )
                 )
-            )
-            response.raise_for_status()
-            embedding = response.json().get("embedding")
-            if isinstance(embedding, list) and embedding:
-                return [float(value) for value in embedding]
-        except httpx.HTTPError:
-            pass
+                response.raise_for_status()
+                embedding = response.json()["data"][0]["embedding"]
+                if isinstance(embedding, list) and embedding:
+                    return [float(value) for value in embedding]
+            except (httpx.HTTPError, KeyError, IndexError, TypeError):
+                pass
+
+        if provider == "ollama":
+            try:
+                response = self._with_retries(
+                    lambda: httpx.post(
+                        f"{self.settings.ollama_base_url}/api/embeddings",
+                        json={"model": self.settings.ollama_embed_model, "prompt": text},
+                        timeout=10,
+                    )
+                )
+                response.raise_for_status()
+                embedding = response.json().get("embedding")
+                if isinstance(embedding, list) and embedding:
+                    return [float(value) for value in embedding]
+            except httpx.HTTPError:
+                pass
+
         return self._deterministic_embedding(text)
 
     def analyze_alert(
@@ -43,7 +64,7 @@ class OllamaService:
         domain: IncidentDomain = IncidentDomain.security,
     ) -> LLMReasoningResult:
         prompt = self._build_prompt(alert, references, domain)
-        if self.settings.llm_provider not in {"ollama", "openai", "anthropic"}:
+        if self._effective_provider() not in {"ollama", "openai", "anthropic"}:
             return self._fallback_analysis(alert, domain)
 
         try:
@@ -56,7 +77,21 @@ class OllamaService:
         return self._fallback_analysis(alert, domain)
 
     def _call_provider(self, prompt: str) -> str:
-        if self.settings.llm_provider == "ollama":
+        provider = self._effective_provider()
+        if provider == "openai":
+            response = httpx.post(
+                f"{self.settings.openai_base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+                json={
+                    "model": self.settings.openai_model,
+                    "response_format": {"type": "json_object"},
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+        if provider == "ollama":
             response = httpx.post(
                 f"{self.settings.ollama_base_url}/api/generate",
                 json={
@@ -71,20 +106,7 @@ class OllamaService:
             text = response.json().get("response")
             if isinstance(text, str) and text.strip():
                 return text.strip()
-        if self.settings.llm_provider == "openai" and self.settings.openai_api_key:
-            response = httpx.post(
-                f"{self.settings.openai_base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-                json={
-                    "model": self.settings.openai_model,
-                    "response_format": {"type": "json_object"},
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=30,
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-        if self.settings.llm_provider == "anthropic" and self.settings.anthropic_api_key:
+        if provider == "anthropic":
             response = httpx.post(
                 f"{self.settings.anthropic_base_url.rstrip('/')}/messages",
                 headers={
@@ -103,6 +125,18 @@ class OllamaService:
             if parts and isinstance(parts[0].get("text"), str):
                 return parts[0]["text"]
         raise ValueError("No supported live provider configured.")
+
+    def _effective_provider(self) -> str:
+        requested = self.settings.llm_provider.lower().strip()
+        if requested == "openai" and self.settings.openai_api_key:
+            return "openai"
+        if requested == "anthropic" and self.settings.anthropic_api_key:
+            return "anthropic"
+        if requested == "ollama":
+            return "ollama"
+        if requested in {"auto", "openai", "anthropic"}:
+            return "ollama"
+        return requested
 
     def _with_retries(self, operation: Callable[[], object]):
         attempts = max(1, self.settings.llm_max_retries)

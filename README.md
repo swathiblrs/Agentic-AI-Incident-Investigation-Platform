@@ -1,6 +1,6 @@
 # 🚨 AI Incident Investigation Platform
 
-A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG).
+A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG) with OpenAI-powered reasoning and embeddings.
 
 ## 🌟 Why this project exists
 
@@ -13,7 +13,7 @@ The platform can:
 - Analyze security alerts, production errors, cloud events, data pipeline failures, and IT incidents
 - Retrieve relevant runbooks, security playbooks, MITRE ATT&CK notes, and past incidents
 - Route incidents through domain-specific LangGraph workflows
-- Upload logs and runbooks through the API for chunking, embeddings, and retrieval
+- Upload logs and runbooks through the API for chunking, OpenAI embeddings, and retrieval
 - Collect evidence from logs, metrics, events, and alert payloads
 - Produce structured reports with risk/status, timeline, evidence, references, and recommended actions
 - Generate postmortems after investigations
@@ -33,8 +33,9 @@ Core stack:
 
 - FastAPI for API backend
 - LangGraph for multi-step investigation workflows
-- Ollama for local LLM reasoning and embeddings with deterministic fallback
-- Optional OpenAI-compatible and Anthropic-compatible LLM provider switching
+- OpenAI models for LLM reasoning and embeddings
+- Automatic local Ollama fallback when no OpenAI API key is configured
+- Optional Anthropic-compatible LLM provider switching
 - Bounded exponential retry with jitter for transient LLM provider failures
 - PostgreSQL + pgvector for vector search
 - Redis for session memory and caching
@@ -67,6 +68,7 @@ Core stack:
 - Domain-specific status or verdict generation
 - RAG-grounded reasoning before response recommendations
 - Conversation memory per analyst session using Redis with in-memory fallback
+- Optional LangGraph Postgres checkpointing by session/thread id
 
 ### 🧠 Retrieval Augmented Generation Pipeline
 
@@ -78,7 +80,8 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Data pipeline runbooks
 - IT operations runbooks
 - Past incident archive examples
-- Ollama embedding generation for local semantic indexing
+- OpenAI embedding generation using `text-embedding-3-small`
+- Local Ollama or deterministic fallback embeddings when no OpenAI API key is configured
 - PostgreSQL + pgvector retrieval runtime
 - API ingestion for uploaded logs and runbooks
 - Local in-memory searchable fallback for uploaded chunks when Postgres is disabled
@@ -91,7 +94,9 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Role-based access control for `security_analyst`, `sre`, `data_engineer`, `it_ops`, and `admin`
 - Report persistence with Postgres support and in-memory fallback
 - Async Postgres connection pooling for report and ingestion writes
-- Integration registry stubs for Splunk, Sentinel, Okta, CrowdStrike, Datadog, Loki, CloudWatch, Jira, ServiceNow, and Slack
+- Optional LangGraph checkpoint persistence using `AsyncPostgresSaver`
+- Production-style integration registry for Splunk, Sentinel, Okta, CrowdStrike, Datadog, Loki, CloudWatch, Jira, ServiceNow, and Slack
+- Integration catalog, readiness checks, required metadata validation, and local-safe evidence previews
 - Postmortem generation from stored reports
 - Typed request and response models
 - Health and metrics endpoints
@@ -106,18 +111,17 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Per-node execution duration metrics
 - Grafana provisioning included
 - Optional Langfuse tracing endpoint configuration
-- pytest-based evaluation framework with JSON reports
+- Hybrid evaluation framework with local checks, optional OpenAI judge scoring, and optional Langfuse trace upload
 - 12 cross-domain eval cases covering expected status/verdict, evidence, and actions
 
 ### ⚡ Performance & Reliability
 
 - Docker Compose setup for local services
 - Redis-backed session memory with in-memory fallback
-- Ollama calls automatically fall back to deterministic local reasoning when Ollama is unavailable
-- LLM provider calls use retry/backoff before falling back
+- OpenAI provider calls use retry/backoff before falling back to local reasoning
 - Makefile and uv workflow for repeatable local commands
 - AWS-ready deployment templates under `infra/aws/`
-- API dashboard for submitting incidents, viewing reports, copying actions, and browsing stored investigations
+- API dashboard for submitting incidents, ingesting runbooks, viewing reports, generating postmortems, and validating integrations
 
 ## 💡 Example Use Cases
 
@@ -159,7 +163,8 @@ infra/aws/               # AWS-ready templates and deployment notes
 - Python 3.11+
 - uv
 - Docker + Docker Compose
-- Ollama for local LLM reasoning and embeddings
+- OpenAI API key for primary LLM reasoning and embeddings
+- Ollama is optional for local fallback when no OpenAI API key is configured
 - PostgreSQL with pgvector for vector search
 - Redis for session memory
 
@@ -183,6 +188,17 @@ Create environment file:
 ```bash
 cp .env.example .env
 ```
+
+For OpenAI-powered reasoning and embeddings, set:
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_key
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_EMBED_MODEL=text-embedding-3-small
+```
+
+If `OPENAI_API_KEY` is blank, the platform automatically uses local Ollama and deterministic fallback behavior for development.
 
 Run locally:
 
@@ -209,7 +225,10 @@ POST /api/ingest/logs
 GET  /api/reports
 POST /api/reports/{investigation_id}/postmortem
 POST /api/integrations
+GET  /api/integrations/catalog
+GET  /api/integrations/{integration_id}/health
 GET  /api/sessions/{session_id}/memory
+DELETE /api/sessions/{session_id}
 GET  /api/metrics
 GET  /api/dashboard
 ```
@@ -238,7 +257,7 @@ Monitoring dashboards:
 Prometheus -> http://localhost:9090
 Grafana    -> http://localhost:3000
 API        -> http://localhost:8000
-Ollama     -> http://localhost:11434
+Ollama     -> http://localhost:11434  # local fallback provider
 Redis      -> localhost:6379
 ```
 
@@ -269,6 +288,7 @@ The test suite validates:
 - Presence of references and remediation actions
 - JWT authentication and session memory
 - LangGraph workflow compilation
+- Session cleanup for Redis memory and LangGraph checkpoints
 
 Run evaluation cases:
 
@@ -276,11 +296,31 @@ Run evaluation cases:
 make eval
 ```
 
+By default, evaluation runs locally with no API cost. If `OPENAI_API_KEY` is configured, the same runner adds OpenAI judge scoring. If Langfuse credentials are also configured, it uploads evaluation traces.
+
+```env
+OPENAI_API_KEY=your_key
+EVALUATION_PROVIDER=auto
+EVALUATION_MODEL=gpt-4o-mini
+LANGFUSE_ENABLED=true
+LANGFUSE_HOST=https://cloud.langfuse.com
+LANGFUSE_PUBLIC_KEY=your_public_key
+LANGFUSE_SECRET_KEY=your_secret_key
+```
+
 Reports are generated in:
 
 ```text
 evals/reports/
 ```
+
+Report fields include:
+
+- `evaluation_mode`
+- `passed`
+- `openai_judged`
+- `langfuse_traces_sent`
+- per-case local pass/fail and optional OpenAI judge rationale
 
 ## ☁️ AWS Deployment Setup
 
@@ -302,4 +342,4 @@ These files are free to keep in the repo. They only cost money if you intentiona
 
 ## 🙌 Acknowledgements
 
-Built as a multi-domain incident investigation project using FastAPI, LangGraph, RAG, Ollama, pgvector-ready storage, Redis session memory, and monitoring patterns for security and operations workflows.
+Built as a multi-domain incident investigation project using FastAPI, LangGraph, OpenAI-powered RAG, pgvector-ready storage, Redis session memory, local Ollama fallback, and monitoring patterns for security and operations workflows.
