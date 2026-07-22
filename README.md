@@ -23,6 +23,8 @@ The platform can:
 
 ## 🏗️ Architecture Overview
 
+![AI Incident Investigation Platform Architecture](docs/architecture.png)
+
 High level workflow:
 
 Incident alert, logs, metrics, or SIEM events  
