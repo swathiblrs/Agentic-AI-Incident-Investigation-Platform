@@ -280,26 +280,49 @@ class AgentManifest(BaseModel):
 class AgentHandoffRequest(BaseModel):
     source_agent: str = "langgraph_router"
     target_agent: str
+    task_type: str = "investigate"
     incident: IncidentInput
     context: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    parent_message_id: str | None = None
 
 
 class AgentHandoffResponse(BaseModel):
+    message_id: str = Field(default_factory=lambda: str(uuid4()))
+    parent_message_id: str | None = None
     source_agent: str
     target_agent: str
+    task_type: str = "investigate"
     domain: IncidentDomain
     status: str
     summary: str
+    result: dict[str, Any] = Field(default_factory=dict)
     evidence: list[EvidenceItem] = Field(default_factory=list)
     recommended_actions: list[RemediationStep] = Field(default_factory=list)
     metrics: dict[str, Any] = Field(default_factory=dict)
     duration_ms: float
 
 
+class AgentExchangeRequest(BaseModel):
+    source_agent: str = "langgraph_router"
+    incident: IncidentInput
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentExchangeResponse(BaseModel):
+    domain: IncidentDomain
+    primary_agent: str
+    peer_agent: str
+    status: str
+    messages: list[AgentHandoffResponse]
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
 class PlatformMetricsSnapshot(BaseModel):
     mcp_tools_available: int
     a2a_agents_available: int
     advertised_capabilities: int
+    a2a_messages_per_investigation: int
     integration_ready_tools: int
     local_tool_calls_supported: int
     operational_workflows: int

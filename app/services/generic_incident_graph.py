@@ -14,7 +14,7 @@ from app.models.schemas import (
     IncidentInput,
     IncidentReport,
     IncidentStatus,
-    AgentHandoffRequest,
+    AgentExchangeRequest,
     MCPToolCallRequest,
     RemediationStep,
 )
@@ -339,23 +339,30 @@ class GenericIncidentGraph:
                 IncidentDomain.data: "data_agent",
                 IncidentDomain.it: "it_agent",
             }[state.incident.domain]
-            handoff = LocalA2ARegistry().handoff(
-                AgentHandoffRequest(
+            exchange = LocalA2ARegistry().exchange(
+                AgentExchangeRequest(
                     source_agent="langgraph_domain_router",
-                    target_agent=target_agent,
                     incident=state.incident,
                     context={"domain_path": label},
                 )
             )
             state.timeline.append(f"Routed incident through {label} investigation path.")
-            state.timeline.append(f"A2A handoff to {target_agent} completed with status {handoff.status}.")
+            state.timeline.append(
+                f"A2A exchange completed across {exchange.primary_agent} and {exchange.peer_agent} "
+                f"with {len(exchange.messages)} task/result messages."
+            )
+            for message in exchange.messages:
+                state.timeline.append(
+                    f"A2A message {message.source_agent} -> {message.target_agent}: {message.task_type}."
+                )
             state.enrichment["domain_path"] = label
-            state.enrichment["a2a_handoff"] = handoff.model_dump(mode="json")
+            state.enrichment["a2a_exchange"] = exchange.model_dump(mode="json")
             DOMAIN_ROUTING_TOTAL.labels(domain=state.incident.domain.value, target_agent=target_agent).inc()
-            AUTOMATED_STEPS_TOTAL.labels(domain=state.incident.domain.value, step="a2a_specialist_handoff").inc()
-            for item in handoff.evidence:
-                state.evidence.append(item)
-                EVIDENCE_ITEMS_TOTAL.labels(domain=state.incident.domain.value, kind=item.kind).inc()
+            AUTOMATED_STEPS_TOTAL.labels(domain=state.incident.domain.value, step="a2a_agent_exchange").inc()
+            for message in exchange.messages:
+                for item in message.evidence:
+                    state.evidence.append(item)
+                    EVIDENCE_ITEMS_TOTAL.labels(domain=state.incident.domain.value, kind=item.kind).inc()
             return state
 
         return route

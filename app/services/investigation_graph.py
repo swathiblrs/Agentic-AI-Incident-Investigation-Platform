@@ -11,7 +11,7 @@ from app.agents.triage import AlertTriageAgent
 from app.core.config import get_settings
 from app.core.telemetry import AUTOMATED_STEPS_TOTAL, DOMAIN_ROUTING_TOTAL, EVIDENCE_ITEMS_TOTAL, INVESTIGATION_DURATION, INVESTIGATIONS_TOTAL
 from app.models.schemas import (
-    AgentHandoffRequest,
+    AgentExchangeRequest,
     AgentFinding,
     EvidenceItem,
     IncidentDomain,
@@ -181,21 +181,28 @@ class InvestigationGraph:
             events=state.alert.raw_events,
             tags=state.alert.tags,
         )
-        handoff = self.a2a.handoff(
-            AgentHandoffRequest(
+        exchange = self.a2a.exchange(
+            AgentExchangeRequest(
                 source_agent="langgraph_security_router",
-                target_agent="soc_agent",
                 incident=incident,
                 context={"references": len(state.references)},
             )
         )
-        state.enrichment["a2a_handoff"] = handoff.model_dump(mode="json")
-        state.timeline.append(f"A2A handoff to soc_agent completed with status {handoff.status}.")
+        state.enrichment["a2a_exchange"] = exchange.model_dump(mode="json")
+        state.timeline.append(
+            f"A2A exchange completed across {exchange.primary_agent} and {exchange.peer_agent} "
+            f"with {len(exchange.messages)} task/result messages."
+        )
+        for message in exchange.messages:
+            state.timeline.append(
+                f"A2A message {message.source_agent} -> {message.target_agent}: {message.task_type}."
+            )
         DOMAIN_ROUTING_TOTAL.labels(domain=IncidentDomain.security.value, target_agent="soc_agent").inc()
-        AUTOMATED_STEPS_TOTAL.labels(domain=IncidentDomain.security.value, step="a2a_specialist_handoff").inc()
-        for item in handoff.evidence:
-            state.evidence.append(item)
-            EVIDENCE_ITEMS_TOTAL.labels(domain=IncidentDomain.security.value, kind=item.kind).inc()
+        AUTOMATED_STEPS_TOTAL.labels(domain=IncidentDomain.security.value, step="a2a_agent_exchange").inc()
+        for message in exchange.messages:
+            for item in message.evidence:
+                state.evidence.append(item)
+                EVIDENCE_ITEMS_TOTAL.labels(domain=IncidentDomain.security.value, kind=item.kind).inc()
         return state
 
     def _llm_reasoning(self, state: InvestigationState) -> InvestigationState:

@@ -227,7 +227,22 @@ def test_mcp_and_a2a_local_capabilities() -> None:
     )
     assert handoff_response.status_code == 200
     assert handoff_response.json()["status"] == "ok"
-    assert handoff_response.json()["metrics"]["cost_mode"] == "free_local_handoff"
+    assert handoff_response.json()["metrics"]["cost_mode"] == "free_local_a2a_message"
+
+    exchange_response = client.post(
+        "/api/a2a/exchange",
+        json={
+            "source_agent": "pytest_router",
+            "incident": load_sample_incident().model_dump(mode="json"),
+        },
+        headers=headers,
+    )
+    assert exchange_response.status_code == 200
+    exchange_body = exchange_response.json()
+    assert exchange_body["status"] == "ok"
+    assert exchange_body["primary_agent"] == "sre_agent"
+    assert exchange_body["peer_agent"] == "cloud_agent"
+    assert exchange_body["metrics"]["messages_exchanged"] == 3
 
     snapshot_response = client.get("/api/platform/metrics-snapshot", headers=headers)
     assert snapshot_response.status_code == 200
@@ -235,6 +250,7 @@ def test_mcp_and_a2a_local_capabilities() -> None:
     assert snapshot["mcp_tools_available"] >= 6
     assert snapshot["a2a_agents_available"] == 5
     assert snapshot["advertised_capabilities"] >= 15
+    assert snapshot["a2a_messages_per_investigation"] == 3
 
 
 def test_domain_role_access_control() -> None:
@@ -314,7 +330,9 @@ def test_security_report_contains_mcp_and_a2a_verification_markers() -> None:
     timeline = " ".join(report.timeline)
 
     assert "MCP tool search_security_logs collected local security evidence" in timeline
-    assert "A2A handoff to soc_agent completed with status ok" in timeline
+    assert "A2A exchange completed across soc_agent and it_agent" in timeline
+    assert "A2A message soc_agent -> it_agent: collect_peer_context" in timeline
+    assert "A2A message it_agent -> soc_agent: return_peer_context" in timeline
     assert any(item.kind == "mcp_tool" for item in report.evidence)
     assert any(item.kind == "identity_signal" for item in report.evidence)
 
@@ -324,7 +342,9 @@ def test_generic_report_contains_mcp_and_a2a_verification_markers() -> None:
     timeline = " ".join(report.timeline)
 
     assert "MCP tool query_observability collected local evidence" in timeline
-    assert "A2A handoff to sre_agent completed with status ok" in timeline
+    assert "A2A exchange completed across sre_agent and cloud_agent" in timeline
+    assert "A2A message sre_agent -> cloud_agent: collect_peer_context" in timeline
+    assert "A2A message cloud_agent -> sre_agent: return_peer_context" in timeline
     assert any(item.kind == "mcp_tool" for item in report.evidence)
     assert any(item.kind == "service_health" for item in report.evidence)
 
@@ -348,6 +368,7 @@ def test_prometheus_exports_mcp_a2a_and_routing_metrics() -> None:
     metrics_text = metrics_response.text
     assert "incident_mcp_tool_calls_total" in metrics_text
     assert "incident_a2a_handoffs_total" in metrics_text
+    assert "incident_a2a_messages_total" in metrics_text
     assert "incident_domain_routing_total" in metrics_text
     assert "incident_evidence_items_total" in metrics_text
     assert "incident_automated_steps_total" in metrics_text

@@ -16,6 +16,8 @@ from app.core.security import (
 from app.models.schemas import (
     AgentHandoffRequest,
     AgentHandoffResponse,
+    AgentExchangeRequest,
+    AgentExchangeResponse,
     AgentManifest,
     HealthResponse,
     IncidentDomain,
@@ -230,6 +232,15 @@ def a2a_handoff(
     return a2a_registry.handoff(request)
 
 
+@router.post("/a2a/exchange", response_model=AgentExchangeResponse)
+def a2a_exchange(
+    request: AgentExchangeRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> AgentExchangeResponse:
+    ensure_domain_access(current_user, request.incident.domain)
+    return a2a_registry.exchange(request)
+
+
 @router.post("/a2a/agents/{agent_name}/handoff", response_model=AgentHandoffResponse)
 def a2a_agent_handoff(
     agent_name: str,
@@ -252,7 +263,7 @@ def platform_metrics_snapshot(_: CurrentUser = Depends(get_current_user)) -> Pla
             "domain routing",
             "MCP tool discovery",
             "MCP evidence collection",
-            "A2A specialist handoff",
+            "A2A task/result exchange",
             "RAG context retrieval",
             "risk scoring",
             "response recommendation",
@@ -517,6 +528,7 @@ checkout-api failed request status=503 route=/checkout</textarea>
               document.getElementById('platformMetricList').innerHTML = [
                 ['MCP tools', metrics.mcp_tools_available],
                 ['A2A agents', metrics.a2a_agents_available],
+                ['A2A messages/investigation', metrics.a2a_messages_per_investigation],
                 ['Capabilities', metrics.advertised_capabilities],
                 ['Integration-ready tools', metrics.integration_ready_tools],
                 ['Workflows', metrics.operational_workflows],

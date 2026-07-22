@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import time
 
-from app.core.telemetry import A2A_HANDOFF_DURATION, A2A_HANDOFFS_TOTAL, ACTIVE_AGENT_CAPABILITIES
+from app.core.telemetry import (
+    A2A_HANDOFF_DURATION,
+    A2A_HANDOFFS_TOTAL,
+    A2A_MESSAGES_TOTAL,
+    ACTIVE_AGENT_CAPABILITIES,
+)
 from app.models.schemas import (
+    AgentExchangeRequest,
+    AgentExchangeResponse,
     AgentHandoffRequest,
     AgentHandoffResponse,
     AgentManifest,
@@ -20,6 +27,7 @@ class LocalA2ARegistry:
         self._agents = self._build_manifests()
         for agent in self._agents.values():
             ACTIVE_AGENT_CAPABILITIES.labels(agent=agent.name, domain=agent.domain.value).set(len(agent.capabilities))
+        self.messages_per_investigation = 3
 
     def list_agents(self) -> list[AgentManifest]:
         return list(self._agents.values())
@@ -53,9 +61,17 @@ class LocalA2ARegistry:
                 target_agent=request.target_agent,
                 domain=request.incident.domain.value,
             ).observe(duration)
-            return AgentHandoffResponse(
+            A2A_MESSAGES_TOTAL.labels(
                 source_agent=request.source_agent,
                 target_agent=request.target_agent,
+                task_type=request.task_type,
+                status="not_found",
+            ).inc()
+            return AgentHandoffResponse(
+                parent_message_id=request.parent_message_id,
+                source_agent=request.source_agent,
+                target_agent=request.target_agent,
+                task_type=request.task_type,
                 domain=request.incident.domain,
                 status="not_found",
                 summary="Target agent is not registered.",
@@ -76,24 +92,83 @@ class LocalA2ARegistry:
             target_agent=agent.name,
             domain=agent.domain.value,
         ).observe(duration)
-        return AgentHandoffResponse(
+        A2A_MESSAGES_TOTAL.labels(
             source_agent=request.source_agent,
             target_agent=agent.name,
+            task_type=request.task_type,
+            status="ok",
+        ).inc()
+        result = self._result_for(agent, request, evidence, actions)
+        return AgentHandoffResponse(
+            parent_message_id=request.parent_message_id,
+            source_agent=request.source_agent,
+            target_agent=agent.name,
+            task_type=request.task_type,
             domain=agent.domain,
             status="ok",
             summary=(
-                f"{agent.name} accepted the handoff for {request.incident.title} "
-                f"and produced {len(evidence)} evidence items plus {len(actions)} actions."
+                f"{agent.name} completed {request.task_type} for {request.incident.title} "
+                f"and returned {len(evidence)} evidence items plus {len(actions)} actions."
             ),
+            result=result,
             evidence=evidence,
             recommended_actions=actions,
             metrics={
                 "capabilities_used": min(3, len(agent.capabilities)),
                 "evidence_items": len(evidence),
                 "recommended_actions": len(actions),
-                "cost_mode": "free_local_handoff",
+                "cost_mode": "free_local_a2a_message",
             },
             duration_ms=round(duration * 1000, 3),
+        )
+
+    def exchange(self, request: AgentExchangeRequest) -> AgentExchangeResponse:
+        primary = self.agent_for_domain(request.incident.domain)
+        peer = self.peer_for_domain(request.incident.domain)
+        first = self.handoff(
+            AgentHandoffRequest(
+                source_agent=request.source_agent,
+                target_agent=primary.name,
+                task_type="triage_incident",
+                incident=request.incident,
+                context=request.context,
+                payload={"instruction": "Assess domain impact and choose supporting evidence need."},
+            )
+        )
+        second = self.handoff(
+            AgentHandoffRequest(
+                source_agent=primary.name,
+                target_agent=peer.name,
+                task_type="collect_peer_context",
+                incident=request.incident,
+                context={"previous_result": first.result, **request.context},
+                payload={"instruction": "Collect supporting context requested by the primary agent."},
+                parent_message_id=first.message_id,
+            )
+        )
+        third = self.handoff(
+            AgentHandoffRequest(
+                source_agent=peer.name,
+                target_agent=primary.name,
+                task_type="return_peer_context",
+                incident=request.incident,
+                context={"previous_result": second.result, **request.context},
+                payload={"instruction": "Merge peer context into the primary investigation plan."},
+                parent_message_id=second.message_id,
+            )
+        )
+        return AgentExchangeResponse(
+            domain=request.incident.domain,
+            primary_agent=primary.name,
+            peer_agent=peer.name,
+            status="ok" if all(message.status == "ok" for message in (first, second, third)) else "degraded",
+            messages=[first, second, third],
+            metrics={
+                "messages_exchanged": 3,
+                "agents_involved": 2,
+                "task_types": [first.task_type, second.task_type, third.task_type],
+                "cost_mode": "free_local_a2a_exchange",
+            },
         )
 
     def capability_metrics(self) -> dict[str, int]:
@@ -101,6 +176,7 @@ class LocalA2ARegistry:
             "a2a_agents_available": len(self._agents),
             "advertised_capabilities": sum(len(agent.capabilities) for agent in self._agents.values()),
             "operational_workflows": len({agent.domain for agent in self._agents.values()}),
+            "a2a_messages_per_investigation": self.messages_per_investigation,
         }
 
     @staticmethod
@@ -149,6 +225,16 @@ class LocalA2ARegistry:
         ]
         return {agent.name: agent for agent in agents}
 
+    def peer_for_domain(self, domain: IncidentDomain) -> AgentManifest:
+        mapping = {
+            IncidentDomain.security: "it_agent",
+            IncidentDomain.production: "cloud_agent",
+            IncidentDomain.cloud: "sre_agent",
+            IncidentDomain.data: "sre_agent",
+            IncidentDomain.it: "soc_agent",
+        }
+        return self._agents[mapping[domain]]
+
     @staticmethod
     def _evidence_for(agent: AgentManifest, request: AgentHandoffRequest) -> list[EvidenceItem]:
         incident = request.incident
@@ -191,6 +277,25 @@ class LocalA2ARegistry:
                 priority=1,
                 action=action,
                 owner=owner,
-                rationale=f"Recommended by {agent.name} after local A2A handoff.",
+                rationale=f"Recommended by {agent.name} after local A2A task exchange.",
             )
         ]
+
+    @staticmethod
+    def _result_for(
+        agent: AgentManifest,
+        request: AgentHandoffRequest,
+        evidence: list[EvidenceItem],
+        actions: list[RemediationStep],
+    ) -> dict[str, object]:
+        return {
+            "agent": agent.name,
+            "task_type": request.task_type,
+            "incident_id": request.incident.id,
+            "domain": agent.domain.value,
+            "capabilities_used": agent.capabilities[:3],
+            "evidence_kinds": [item.kind for item in evidence],
+            "recommended_actions": [action.action for action in actions],
+            "received_from": request.source_agent,
+            "parent_message_id": request.parent_message_id,
+        }

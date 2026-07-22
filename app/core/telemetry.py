@@ -38,6 +38,12 @@ A2A_HANDOFFS_TOTAL = Counter(
     ["source_agent", "target_agent", "domain", "status"],
 )
 
+A2A_MESSAGES_TOTAL = Counter(
+    "incident_a2a_messages_total",
+    "Total structured agent-to-agent task/result messages exchanged locally.",
+    ["source_agent", "target_agent", "task_type", "status"],
+)
+
 A2A_HANDOFF_DURATION = Histogram(
     "incident_a2a_handoff_duration_seconds",
     "Agent-to-agent style handoff execution duration.",
