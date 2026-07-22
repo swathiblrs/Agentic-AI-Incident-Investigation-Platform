@@ -183,6 +183,60 @@ def test_ingestion_reports_postmortem_and_integrations() -> None:
     assert "incident channel messages" in preview_response.json()["events"]
 
 
+def test_mcp_and_a2a_local_capabilities() -> None:
+    client = TestClient(app)
+    token = client.post(
+        "/api/auth/token",
+        json={"username": "analyst", "password": "analyst", "role": "admin"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    tools_response = client.get("/api/mcp/tools", headers=headers)
+    assert tools_response.status_code == 200
+    tools = tools_response.json()
+    assert len(tools) >= 6
+    assert any(tool["name"] == "query_observability" for tool in tools)
+
+    tool_call_response = client.post(
+        "/api/mcp/tools/call",
+        json={
+            "tool_name": "query_observability",
+            "arguments": {"query": "checkout 503"},
+            "incident": load_sample_incident().model_dump(mode="json"),
+        },
+        headers=headers,
+    )
+    assert tool_call_response.status_code == 200
+    assert tool_call_response.json()["status"] == "ok"
+    assert tool_call_response.json()["result"]["cost_mode"] == "free_local_dry_run"
+
+    agents_response = client.get("/api/a2a/agents", headers=headers)
+    assert agents_response.status_code == 200
+    agents = agents_response.json()
+    assert len(agents) == 5
+    assert any(agent["name"] == "sre_agent" for agent in agents)
+
+    handoff_response = client.post(
+        "/api/a2a/handoff",
+        json={
+            "source_agent": "pytest_router",
+            "target_agent": "sre_agent",
+            "incident": load_sample_incident().model_dump(mode="json"),
+        },
+        headers=headers,
+    )
+    assert handoff_response.status_code == 200
+    assert handoff_response.json()["status"] == "ok"
+    assert handoff_response.json()["metrics"]["cost_mode"] == "free_local_handoff"
+
+    snapshot_response = client.get("/api/platform/metrics-snapshot", headers=headers)
+    assert snapshot_response.status_code == 200
+    snapshot = snapshot_response.json()
+    assert snapshot["mcp_tools_available"] >= 6
+    assert snapshot["a2a_agents_available"] == 5
+    assert snapshot["advertised_capabilities"] >= 15
+
+
 def test_domain_role_access_control() -> None:
     client = TestClient(app)
     token = client.post(
@@ -253,3 +307,47 @@ def test_openai_provider_without_key_falls_back_to_local(monkeypatch) -> None:
     monkeypatch.setattr(service.settings, "openai_api_key", "")
 
     assert service._effective_provider() == "ollama"
+
+
+def test_security_report_contains_mcp_and_a2a_verification_markers() -> None:
+    report = InvestigationGraph().investigate(load_sample_alert())
+    timeline = " ".join(report.timeline)
+
+    assert "MCP tool search_security_logs collected local security evidence" in timeline
+    assert "A2A handoff to soc_agent completed with status ok" in timeline
+    assert any(item.kind == "mcp_tool" for item in report.evidence)
+    assert any(item.kind == "identity_signal" for item in report.evidence)
+
+
+def test_generic_report_contains_mcp_and_a2a_verification_markers() -> None:
+    report = GenericIncidentGraph().investigate(load_sample_incident())
+    timeline = " ".join(report.timeline)
+
+    assert "MCP tool query_observability collected local evidence" in timeline
+    assert "A2A handoff to sre_agent completed with status ok" in timeline
+    assert any(item.kind == "mcp_tool" for item in report.evidence)
+    assert any(item.kind == "service_health" for item in report.evidence)
+
+
+def test_prometheus_exports_mcp_a2a_and_routing_metrics() -> None:
+    client = TestClient(app)
+    token = client.post(
+        "/api/auth/token",
+        json={"username": "analyst", "password": "analyst", "role": "admin"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    client.post(
+        "/api/incidents/investigate",
+        json={"incident": load_sample_incident().model_dump(mode="json")},
+        headers=headers,
+    )
+    metrics_response = client.get("/api/metrics")
+
+    assert metrics_response.status_code == 200
+    metrics_text = metrics_response.text
+    assert "incident_mcp_tool_calls_total" in metrics_text
+    assert "incident_a2a_handoffs_total" in metrics_text
+    assert "incident_domain_routing_total" in metrics_text
+    assert "incident_evidence_items_total" in metrics_text
+    assert "incident_automated_steps_total" in metrics_text

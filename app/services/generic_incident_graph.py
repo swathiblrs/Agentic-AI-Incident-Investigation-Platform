@@ -4,7 +4,7 @@ import time
 
 from langgraph.graph import END, START, StateGraph
 
-from app.core.telemetry import INVESTIGATION_DURATION
+from app.core.telemetry import AUTOMATED_STEPS_TOTAL, DOMAIN_ROUTING_TOTAL, EVIDENCE_ITEMS_TOTAL, INVESTIGATION_DURATION
 from app.models.generic_state import GenericIncidentState
 from app.models.schemas import (
     AgentFinding,
@@ -14,11 +14,15 @@ from app.models.schemas import (
     IncidentInput,
     IncidentReport,
     IncidentStatus,
+    AgentHandoffRequest,
+    MCPToolCallRequest,
     RemediationStep,
 )
 from app.rag.retriever import SecurityKnowledgeRetriever
+from app.services.a2a import LocalA2ARegistry
 from app.services.langgraph_checkpoint import LangGraphCheckpointManager
 from app.services.llm import OllamaService
+from app.services.mcp_tools import LocalMCPToolRegistry
 from app.services.tracing import LangfuseTracer
 
 
@@ -30,6 +34,8 @@ class GenericIncidentGraph:
         self.llm = OllamaService()
         self.tracer = LangfuseTracer()
         self.checkpoints = LangGraphCheckpointManager()
+        self.a2a = LocalA2ARegistry()
+        self.mcp_tools = LocalMCPToolRegistry()
         self._checkpoint_graph = None
         self.graph = self._build_graph()
 
@@ -140,6 +146,7 @@ class GenericIncidentGraph:
         state.timeline.append(
             f"Retrieved {len(state.references)} documents for {state.incident.domain.value} incident context."
         )
+        AUTOMATED_STEPS_TOTAL.labels(domain=state.incident.domain.value, step="rag_context_retrieval").inc()
         return state
 
     def _classify_incident(self, state: GenericIncidentState) -> GenericIncidentState:
@@ -180,6 +187,7 @@ class GenericIncidentGraph:
         state.risk_score += score
         state.enrichment["classification_signals"] = signals
         state.timeline.append(f"Classified {incident.domain.value} incident at initial risk {score}.")
+        AUTOMATED_STEPS_TOTAL.labels(domain=incident.domain.value, step="risk_scoring").inc()
         state.findings.append(
             AgentFinding(
                 agent="classify_incident",
@@ -194,24 +202,56 @@ class GenericIncidentGraph:
 
     def _collect_evidence(self, state: GenericIncidentState) -> GenericIncidentState:
         incident = state.incident
+        tool_name = {
+            IncidentDomain.security: "search_security_logs",
+            IncidentDomain.production: "query_observability",
+            IncidentDomain.cloud: "query_observability",
+            IncidentDomain.data: "search_runbooks",
+            IncidentDomain.it: "inspect_identity_events",
+        }[incident.domain]
+        tool_result = self.mcp_tools.execute(
+            MCPToolCallRequest(
+                tool_name=tool_name,
+                arguments={"query": self._combined_text(incident), "limit": 5},
+                incident=incident,
+            )
+        )
+        state.enrichment["mcp_evidence"] = tool_result.result
+        state.timeline.append(f"MCP tool {tool_name} collected local evidence in {tool_result.duration_ms} ms.")
+        AUTOMATED_STEPS_TOTAL.labels(domain=incident.domain.value, step="mcp_evidence_collection").inc()
+
         for index, log in enumerate(incident.logs, start=1):
             weight = 10 if any(token in log.lower() for token in ("error", "failed", "timeout", "503")) else 4
             state.evidence.append(
                 EvidenceItem(kind="log", description=f"Log line {index}", value=log, weight=weight)
             )
+            EVIDENCE_ITEMS_TOTAL.labels(domain=incident.domain.value, kind="log").inc()
             state.risk_score += min(weight, 10)
 
         for key, value in incident.metrics.items():
             state.evidence.append(
                 EvidenceItem(kind="metric", description=key, value=str(value), weight=6)
             )
+            EVIDENCE_ITEMS_TOTAL.labels(domain=incident.domain.value, kind="metric").inc()
             state.risk_score += 4
 
         for event in incident.events:
             state.evidence.append(
                 EvidenceItem(kind="event", description=str(event.get("event", "event")), value=str(event), weight=6)
             )
+            EVIDENCE_ITEMS_TOTAL.labels(domain=incident.domain.value, kind="event").inc()
             state.risk_score += 4
+
+        for record in tool_result.result.get("records", [])[:3]:
+            state.evidence.append(
+                EvidenceItem(
+                    kind="mcp_tool",
+                    description=str(record.get("signal", "mcp evidence")),
+                    value=str(record.get("summary", record)),
+                    weight=5,
+                )
+            )
+            EVIDENCE_ITEMS_TOTAL.labels(domain=incident.domain.value, kind="mcp_tool").inc()
 
         state.timeline.append(
             f"Collected {len(incident.logs)} logs, {len(incident.metrics)} metrics, and {len(incident.events)} events."
@@ -274,7 +314,9 @@ class GenericIncidentGraph:
         state.enrichment["recommended_action_text"] = actions
         if state.risk_score >= 85:
             actions.insert(0, "Escalate to the incident commander and notify the owning response channel.")
+            AUTOMATED_STEPS_TOTAL.labels(domain=state.incident.domain.value, step="escalation_recommendation").inc()
         state.timeline.append("Prepared domain-specific response recommendations.")
+        AUTOMATED_STEPS_TOTAL.labels(domain=state.incident.domain.value, step="response_recommendation").inc()
         return state
 
     @staticmethod
@@ -290,8 +332,30 @@ class GenericIncidentGraph:
     @staticmethod
     def _domain_path(label: str):
         def route(state: GenericIncidentState) -> GenericIncidentState:
+            target_agent = {
+                IncidentDomain.security: "soc_agent",
+                IncidentDomain.production: "sre_agent",
+                IncidentDomain.cloud: "cloud_agent",
+                IncidentDomain.data: "data_agent",
+                IncidentDomain.it: "it_agent",
+            }[state.incident.domain]
+            handoff = LocalA2ARegistry().handoff(
+                AgentHandoffRequest(
+                    source_agent="langgraph_domain_router",
+                    target_agent=target_agent,
+                    incident=state.incident,
+                    context={"domain_path": label},
+                )
+            )
             state.timeline.append(f"Routed incident through {label} investigation path.")
+            state.timeline.append(f"A2A handoff to {target_agent} completed with status {handoff.status}.")
             state.enrichment["domain_path"] = label
+            state.enrichment["a2a_handoff"] = handoff.model_dump(mode="json")
+            DOMAIN_ROUTING_TOTAL.labels(domain=state.incident.domain.value, target_agent=target_agent).inc()
+            AUTOMATED_STEPS_TOTAL.labels(domain=state.incident.domain.value, step="a2a_specialist_handoff").inc()
+            for item in handoff.evidence:
+                state.evidence.append(item)
+                EVIDENCE_ITEMS_TOTAL.labels(domain=state.incident.domain.value, kind=item.kind).inc()
             return state
 
         return route

@@ -14,6 +14,9 @@ from app.core.security import (
     get_current_user,
 )
 from app.models.schemas import (
+    AgentHandoffRequest,
+    AgentHandoffResponse,
+    AgentManifest,
     HealthResponse,
     IncidentDomain,
     IngestDocumentRequest,
@@ -25,15 +28,21 @@ from app.models.schemas import (
     IncidentReport,
     InvestigationReport,
     InvestigationRequest,
+    MCPToolCallRequest,
+    MCPToolCallResponse,
+    MCPToolManifest,
+    PlatformMetricsSnapshot,
     PostmortemReport,
     SecurityAlert,
     SessionMemoryResponse,
     StoredReportSummary,
 )
+from app.services.a2a import LocalA2ARegistry
 from app.services.generic_incident_graph import GenericIncidentGraph
 from app.services.ingestion import IngestionService
 from app.services.integrations import IntegrationRegistry
 from app.services.investigation_graph import InvestigationGraph
+from app.services.mcp_tools import LocalMCPToolRegistry
 from app.services.postmortem import PostmortemService
 from app.services.report_store import ReportStore
 from app.services.session_memory import SessionMemory
@@ -46,6 +55,8 @@ ingestion = IngestionService()
 report_store = ReportStore()
 integrations = IntegrationRegistry()
 postmortems = PostmortemService()
+mcp_tools = LocalMCPToolRegistry()
+a2a_registry = LocalA2ARegistry()
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -190,6 +201,67 @@ def collect_integration_preview(
     return integrations.collect_preview(integration_id)
 
 
+@router.get("/mcp/tools", response_model=list[MCPToolManifest])
+def list_mcp_tools(_: CurrentUser = Depends(get_current_user)) -> list[MCPToolManifest]:
+    return mcp_tools.list_tools()
+
+
+@router.post("/mcp/tools/call", response_model=MCPToolCallResponse)
+def call_mcp_tool(
+    request: MCPToolCallRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> MCPToolCallResponse:
+    domain = request.incident.domain if request.incident is not None else IncidentDomain.security
+    ensure_domain_access(current_user, domain)
+    return mcp_tools.execute(request)
+
+
+@router.get("/a2a/agents", response_model=list[AgentManifest])
+def list_a2a_agents(_: CurrentUser = Depends(get_current_user)) -> list[AgentManifest]:
+    return a2a_registry.list_agents()
+
+
+@router.post("/a2a/handoff", response_model=AgentHandoffResponse)
+def a2a_handoff(
+    request: AgentHandoffRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> AgentHandoffResponse:
+    ensure_domain_access(current_user, request.incident.domain)
+    return a2a_registry.handoff(request)
+
+
+@router.post("/a2a/agents/{agent_name}/handoff", response_model=AgentHandoffResponse)
+def a2a_agent_handoff(
+    agent_name: str,
+    request: AgentHandoffRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> AgentHandoffResponse:
+    ensure_domain_access(current_user, request.incident.domain)
+    request.target_agent = agent_name
+    return a2a_registry.handoff(request)
+
+
+@router.get("/platform/metrics-snapshot", response_model=PlatformMetricsSnapshot)
+def platform_metrics_snapshot(_: CurrentUser = Depends(get_current_user)) -> PlatformMetricsSnapshot:
+    mcp = mcp_tools.capability_metrics()
+    a2a = a2a_registry.capability_metrics()
+    return PlatformMetricsSnapshot(
+        **mcp,
+        **a2a,
+        automated_response_steps=[
+            "domain routing",
+            "MCP tool discovery",
+            "MCP evidence collection",
+            "A2A specialist handoff",
+            "RAG context retrieval",
+            "risk scoring",
+            "response recommendation",
+            "report persistence",
+            "postmortem generation",
+        ],
+    )
+
+
 @router.get("/sessions/{session_id}/memory", response_model=SessionMemoryResponse)
 def session_memory(
     session_id: str,
@@ -283,6 +355,7 @@ def dashboard() -> HTMLResponse:
               <button class="tab" onclick="showView('reports', this); loadReports()">Reports</button>
               <button class="tab" onclick="showView('ingest', this)">Ingest</button>
               <button class="tab" onclick="showView('integrations', this); loadCatalog(); loadIntegrations()">Integrations</button>
+              <button class="tab" onclick="showView('platformMetrics', this); loadPlatformMetrics()">Metrics</button>
             </div>
             <div class="shell">
               <section class="panel">
@@ -351,6 +424,11 @@ checkout-api failed request status=503 route=/checkout</textarea>
                   <textarea id="integrationMetadata">{"channel":"#incidents","project_key":"INC","region":"us-east-1","site":"us5","index":"main","sourcetype":"json"}</textarea>
                   <button onclick="registerIntegration()">Register Dry-Run Connector</button>
                   <div id="integrationList" class="list"></div>
+                </div>
+                <div id="platformMetrics" class="view">
+                  <h2>MCP + A2A Metrics</h2>
+                  <button class="ghost" onclick="loadPlatformMetrics()">Refresh Metrics</button>
+                  <div id="platformMetricList" class="list"></div>
                 </div>
                 <pre id="output">No report yet.</pre>
                 <div class="two">
@@ -428,6 +506,23 @@ checkout-api failed request status=503 route=/checkout</textarea>
               const health = await fetch('/api/integrations/'+id+'/health', {headers:{Authorization:'Bearer '+document.getElementById('token').value}});
               const preview = await fetch('/api/integrations/'+id+'/collect-preview', {method:'POST', headers:{Authorization:'Bearer '+document.getElementById('token').value}});
               renderOutput({health: await health.json(), preview: await preview.json()});
+            }
+            async function loadPlatformMetrics() {
+              const headers = {Authorization:'Bearer '+document.getElementById('token').value};
+              const snapshot = await fetch('/api/platform/metrics-snapshot', {headers});
+              const tools = await fetch('/api/mcp/tools', {headers});
+              const agents = await fetch('/api/a2a/agents', {headers});
+              const body = {snapshot: await snapshot.json(), mcp_tools: await tools.json(), a2a_agents: await agents.json()};
+              const metrics = body.snapshot;
+              document.getElementById('platformMetricList').innerHTML = [
+                ['MCP tools', metrics.mcp_tools_available],
+                ['A2A agents', metrics.a2a_agents_available],
+                ['Capabilities', metrics.advertised_capabilities],
+                ['Integration-ready tools', metrics.integration_ready_tools],
+                ['Workflows', metrics.operational_workflows],
+                ['Automated steps', metrics.automated_response_steps.length]
+              ].map(item => `<div class="item"><strong>${item[1]}</strong><small>${item[0]}</small></div>`).join('');
+              renderOutput(body);
             }
             async function generatePostmortem() {
               if (!lastReport?.investigation_id) return;

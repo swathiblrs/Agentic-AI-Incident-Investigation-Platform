@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app.models.schemas import (
@@ -17,4 +19,4 @@ class InvestigationState(BaseModel):
     findings: list[AgentFinding] = Field(default_factory=list)
     evidence: list[EvidenceItem] = Field(default_factory=list)
     references: list[RetrievedDocument] = Field(default_factory=list)
-    enrichment: dict[str, str | int | bool | list[str]] = Field(default_factory=dict)
+    enrichment: dict[str, Any] = Field(default_factory=dict)

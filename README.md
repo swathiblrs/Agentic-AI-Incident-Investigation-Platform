@@ -1,6 +1,6 @@
 # 🚨 AI Incident Investigation Platform
 
-A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG) with OpenAI-powered reasoning and embeddings.
+A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG), OpenAI-powered reasoning and embeddings, MCP-style tool access, and local agent-to-agent handoffs.
 
 ## 🌟 Why this project exists
 
@@ -13,6 +13,8 @@ The platform can:
 - Analyze security alerts, production errors, cloud events, data pipeline failures, and IT incidents
 - Retrieve relevant runbooks, security playbooks, MITRE ATT&CK notes, and past incidents
 - Route incidents through domain-specific LangGraph workflows
+- Discover and call MCP-style tools for evidence collection and dry-run actions
+- Coordinate specialist SOC, SRE, cloud, data, and IT agents through A2A-style handoffs
 - Upload logs and runbooks through the API for chunking, OpenAI embeddings, and retrieval
 - Collect evidence from logs, metrics, events, and alert payloads
 - Produce structured reports with risk/status, timeline, evidence, references, and recommended actions
@@ -25,6 +27,8 @@ High level workflow:
 
 Incident alert, logs, metrics, or SIEM events  
 -> LangGraph orchestration  
+-> A2A-style capability routing selects the specialist domain agent
+-> MCP-style tools collect local or integration-ready evidence
 -> RAG pipeline retrieves relevant runbooks, playbooks, incidents, and ATT&CK notes  
 -> Domain-specific investigation nodes reason over evidence and references  
 -> Structured incident response report
@@ -33,6 +37,8 @@ Core stack:
 
 - FastAPI for API backend
 - LangGraph for multi-step investigation workflows
+- MCP-style local tool registry for evidence and action tools
+- A2A-style local specialist agent registry for capability-based handoffs
 - OpenAI models for LLM reasoning and embeddings
 - Automatic local Ollama fallback when no OpenAI API key is configured
 - Optional Anthropic-compatible LLM provider switching
@@ -64,6 +70,7 @@ Core stack:
 - Security-specific workflow for alert triage, threat enrichment, evidence collection, and remediation
 - Generic incident workflow for production, cloud, data, and IT incidents
 - Conditional domain routing through SOC, SRE, cloud, data, and IT graph paths
+- A2A-style specialist handoffs through local agent manifests and FastAPI handoff endpoints
 - Low-risk incidents can skip live LLM reasoning; high-risk incidents add escalation recommendations
 - Domain-specific status or verdict generation
 - RAG-grounded reasoning before response recommendations
@@ -97,6 +104,8 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Optional LangGraph checkpoint persistence using `AsyncPostgresSaver`
 - Production-style integration registry for Splunk, Sentinel, Okta, CrowdStrike, Datadog, Loki, CloudWatch, Jira, ServiceNow, and Slack
 - Integration catalog, readiness checks, required metadata validation, and local-safe evidence previews
+- MCP-style tool manifest endpoint and structured local tool-call endpoint
+- A2A-style agent manifest endpoint and local handoff endpoint
 - Postmortem generation from stored reports
 - Typed request and response models
 - Health and metrics endpoints
@@ -109,6 +118,9 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Prometheus metrics endpoint
 - Investigation count and duration metrics
 - Per-node execution duration metrics
+- MCP tool availability, call count, status, and latency metrics
+- A2A agent capability, handoff count, status, and latency metrics
+- Domain routing, evidence item, and automated response step counters
 - Grafana provisioning included
 - Optional Langfuse tracing endpoint configuration
 - Hybrid evaluation framework with local checks, optional OpenAI judge scoring, and optional Langfuse trace upload
@@ -122,6 +134,29 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Makefile and uv workflow for repeatable local commands
 - AWS-ready deployment templates under `infra/aws/`
 - API dashboard for submitting incidents, ingesting runbooks, viewing reports, generating postmortems, and validating integrations
+
+## 🔌 MCP + A2A Local Architecture
+
+The project includes MCP-style and A2A-style architecture without requiring paid services.
+
+- MCP tools expose discoverable manifests and a single structured execution path
+- Tools run in `free_local_dry_run` mode unless real vendor credentials are added later
+- Local tools include runbook search, security log search, observability query, identity event inspection, ticket dry-run, and escalation dry-run
+- A2A agents expose capability manifests for SOC, SRE, cloud, data, and IT workflows
+- LangGraph routes incidents to the correct specialist agent and records the handoff in the investigation timeline
+- Prometheus tracks tool calls, handoffs, routing, evidence collection, and automated response steps
+
+Representative metrics this enables:
+
+| Metric | What it shows |
+|---|---|
+| `incident_mcp_tool_calls_total` | MCP-style evidence/action tool usage by tool, mode, and status |
+| `incident_mcp_tool_duration_seconds` | Tool execution latency |
+| `incident_a2a_handoffs_total` | Specialist agent handoffs by source, target, domain, and status |
+| `incident_a2a_handoff_duration_seconds` | Agent handoff latency |
+| `incident_domain_routing_total` | Domain workflow routing coverage |
+| `incident_evidence_items_total` | Evidence completeness by domain and evidence type |
+| `incident_automated_steps_total` | Number of incident-response steps automated |
 
 ## 💡 Example Use Cases
 
@@ -147,7 +182,7 @@ app/
  │    └── sample_alerts/  # Demo security and production incidents
  ├── models/             # Pydantic schemas and LangGraph state models
  ├── rag/                # Retrieval pipeline and uploaded in-memory document store
- ├── services/           # Workflows, ingestion, persistence, integrations, postmortems
+ ├── services/           # Workflows, MCP tools, A2A handoffs, ingestion, persistence, integrations
  └── storage/            # PostgreSQL + pgvector schema and runtime adapter
 
 scripts/                 # CLI demo and ingestion scripts
@@ -227,6 +262,11 @@ POST /api/reports/{investigation_id}/postmortem
 POST /api/integrations
 GET  /api/integrations/catalog
 GET  /api/integrations/{integration_id}/health
+GET  /api/mcp/tools
+POST /api/mcp/tools/call
+GET  /api/a2a/agents
+POST /api/a2a/handoff
+GET  /api/platform/metrics-snapshot
 GET  /api/sessions/{session_id}/memory
 DELETE /api/sessions/{session_id}
 GET  /api/metrics
@@ -283,6 +323,9 @@ The test suite validates:
 - Document ingestion and local retrieval support
 - Report persistence and postmortem generation
 - Integration registry behavior
+- MCP-style tool manifests and local tool execution
+- A2A-style agent manifests and specialist handoff execution
+- Platform metrics snapshot for resume-ready measurable capability counts
 - Role-based access control
 - Risk/status generation
 - Presence of references and remediation actions
@@ -321,6 +364,28 @@ Report fields include:
 - `openai_judged`
 - `langfuse_traces_sent`
 - per-case local pass/fail and optional OpenAI judge rationale
+
+Run platform verification:
+
+```bash
+make verify
+```
+
+This creates:
+
+```text
+evals/reports/platform_verification.json
+```
+
+The verification report checks that:
+
+- 6 MCP-style tools are discoverable
+- 5 A2A-style domain agents are discoverable
+- 15+ agent capabilities are advertised
+- Security and production sample investigations include MCP timeline markers
+- Security and production sample investigations include A2A handoff markers
+- MCP/A2A evidence is attached to generated reports
+- Recommended actions are generated
 
 ## ☁️ AWS Deployment Setup
 

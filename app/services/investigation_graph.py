@@ -9,18 +9,25 @@ from app.agents.evidence import EvidenceCollectorAgent
 from app.agents.remediation import RemediationRecommenderAgent
 from app.agents.triage import AlertTriageAgent
 from app.core.config import get_settings
-from app.core.telemetry import INVESTIGATION_DURATION, INVESTIGATIONS_TOTAL
+from app.core.telemetry import AUTOMATED_STEPS_TOTAL, DOMAIN_ROUTING_TOTAL, EVIDENCE_ITEMS_TOTAL, INVESTIGATION_DURATION, INVESTIGATIONS_TOTAL
 from app.models.schemas import (
+    AgentHandoffRequest,
     AgentFinding,
+    EvidenceItem,
+    IncidentDomain,
+    IncidentInput,
     InvestigationReport,
+    MCPToolCallRequest,
     RemediationStep,
     SecurityAlert,
     Verdict,
 )
 from app.models.state import InvestigationState
 from app.rag.retriever import SecurityKnowledgeRetriever
+from app.services.a2a import LocalA2ARegistry
 from app.services.langgraph_checkpoint import LangGraphCheckpointManager
 from app.services.llm import OllamaService
+from app.services.mcp_tools import LocalMCPToolRegistry
 from app.services.tracing import LangfuseTracer
 
 
@@ -32,6 +39,8 @@ class InvestigationGraph:
         self.llm = OllamaService()
         self.tracer = LangfuseTracer()
         self.checkpoints = LangGraphCheckpointManager()
+        self.a2a = LocalA2ARegistry()
+        self.mcp_tools = LocalMCPToolRegistry()
         self._checkpoint_graph = None
         self.triage_agent = AlertTriageAgent()
         self.enrichment_agent = ThreatEnrichmentAgent()
@@ -95,6 +104,7 @@ class InvestigationGraph:
     def _build_graph_builder(self):
         graph = StateGraph(InvestigationState)
         graph.add_node("retrieve_context", self._retrieve_context)
+        graph.add_node("soc_a2a_handoff", self._soc_a2a_handoff)
         graph.add_node("alert_triage", self.triage_agent.run)
         graph.add_node("threat_enrichment", self.enrichment_agent.run)
         graph.add_node("evidence_collection", self.evidence_agent.run)
@@ -102,7 +112,8 @@ class InvestigationGraph:
         graph.add_node("remediation_recommendation", self.remediation_agent.run)
 
         graph.add_edge(START, "retrieve_context")
-        graph.add_edge("retrieve_context", "alert_triage")
+        graph.add_edge("retrieve_context", "soc_a2a_handoff")
+        graph.add_edge("soc_a2a_handoff", "alert_triage")
         graph.add_edge("alert_triage", "threat_enrichment")
         graph.add_edge("threat_enrichment", "evidence_collection")
         graph.add_edge("evidence_collection", "llm_reasoning")
@@ -131,11 +142,66 @@ class InvestigationGraph:
     def _retrieve_context(self, state: InvestigationState) -> InvestigationState:
         state.references = self.retriever.retrieve_for_alert(state.alert)
         state.timeline.append(f"Retrieved {len(state.references)} relevant knowledge base documents.")
+        tool_result = self.mcp_tools.execute(
+            MCPToolCallRequest(
+                tool_name="search_security_logs",
+                arguments={"query": f"{state.alert.title} {state.alert.description}", "limit": 5},
+                alert=state.alert,
+            )
+        )
+        state.enrichment["mcp_evidence"] = tool_result.result
+        for record in tool_result.result.get("records", [])[:3]:
+            state.evidence.append(
+                EvidenceItem(
+                    kind="mcp_tool",
+                    description=str(record.get("signal", "mcp evidence")),
+                    value=str(record.get("summary", record)),
+                    weight=5,
+                )
+            )
+            EVIDENCE_ITEMS_TOTAL.labels(domain=IncidentDomain.security.value, kind="mcp_tool").inc()
+        state.timeline.append(
+            f"MCP tool search_security_logs collected local security evidence in {tool_result.duration_ms} ms."
+        )
+        AUTOMATED_STEPS_TOTAL.labels(domain=IncidentDomain.security.value, step="mcp_evidence_collection").inc()
+        AUTOMATED_STEPS_TOTAL.labels(domain=IncidentDomain.security.value, step="rag_context_retrieval").inc()
+        return state
+
+    def _soc_a2a_handoff(self, state: InvestigationState) -> InvestigationState:
+        incident = IncidentInput(
+            id=state.alert.id,
+            title=state.alert.title,
+            domain=IncidentDomain.security,
+            severity=state.alert.severity,
+            source=state.alert.source,
+            detected_at=state.alert.detected_at,
+            service=state.alert.host,
+            owner_team="SOC",
+            description=state.alert.description,
+            events=state.alert.raw_events,
+            tags=state.alert.tags,
+        )
+        handoff = self.a2a.handoff(
+            AgentHandoffRequest(
+                source_agent="langgraph_security_router",
+                target_agent="soc_agent",
+                incident=incident,
+                context={"references": len(state.references)},
+            )
+        )
+        state.enrichment["a2a_handoff"] = handoff.model_dump(mode="json")
+        state.timeline.append(f"A2A handoff to soc_agent completed with status {handoff.status}.")
+        DOMAIN_ROUTING_TOTAL.labels(domain=IncidentDomain.security.value, target_agent="soc_agent").inc()
+        AUTOMATED_STEPS_TOTAL.labels(domain=IncidentDomain.security.value, step="a2a_specialist_handoff").inc()
+        for item in handoff.evidence:
+            state.evidence.append(item)
+            EVIDENCE_ITEMS_TOTAL.labels(domain=IncidentDomain.security.value, kind=item.kind).inc()
         return state
 
     def _llm_reasoning(self, state: InvestigationState) -> InvestigationState:
         analysis = self.llm.analyze_alert(state.alert, state.references)
         state.timeline.append("LLM reasoning generated a grounded investigation assessment.")
+        AUTOMATED_STEPS_TOTAL.labels(domain=IncidentDomain.security.value, step="llm_reasoning").inc()
         state.findings.append(
             AgentFinding(
                 agent="llm_reasoning",

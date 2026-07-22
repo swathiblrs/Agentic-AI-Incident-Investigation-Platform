@@ -242,6 +242,70 @@ class IntegrationConfigResponse(IntegrationConfigRequest):
     status: str
 
 
+class MCPToolManifest(BaseModel):
+    name: str
+    description: str
+    domains: list[IncidentDomain]
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    mode: str = "local"
+    external_integration: IntegrationType | None = None
+
+
+class MCPToolCallRequest(BaseModel):
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    incident: IncidentInput | None = None
+    alert: SecurityAlert | None = None
+
+
+class MCPToolCallResponse(BaseModel):
+    tool_name: str
+    mode: str
+    status: str
+    result: dict[str, Any]
+    duration_ms: float
+
+
+class AgentManifest(BaseModel):
+    name: str
+    domain: IncidentDomain
+    endpoint: str
+    capabilities: list[str]
+    accepts: list[str]
+    produces: list[str]
+    mode: str = "local"
+
+
+class AgentHandoffRequest(BaseModel):
+    source_agent: str = "langgraph_router"
+    target_agent: str
+    incident: IncidentInput
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentHandoffResponse(BaseModel):
+    source_agent: str
+    target_agent: str
+    domain: IncidentDomain
+    status: str
+    summary: str
+    evidence: list[EvidenceItem] = Field(default_factory=list)
+    recommended_actions: list[RemediationStep] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    duration_ms: float
+
+
+class PlatformMetricsSnapshot(BaseModel):
+    mcp_tools_available: int
+    a2a_agents_available: int
+    advertised_capabilities: int
+    integration_ready_tools: int
+    local_tool_calls_supported: int
+    operational_workflows: int
+    automated_response_steps: list[str]
+
+
 class InvestigationRequest(BaseModel):
     alert: SecurityAlert
     include_references: bool = True
