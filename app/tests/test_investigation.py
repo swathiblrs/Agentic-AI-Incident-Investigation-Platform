@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 from langgraph.graph.state import CompiledStateGraph
 
 from app.main import app
-from app.models.schemas import IncidentInput, IncidentStatus, SecurityAlert, Verdict
+from app.models.schemas import AgentHandoffRequest, IncidentInput, IncidentStatus, SecurityAlert, Verdict
+from app.services.a2a import LocalA2ARegistry
 from app.services.generic_incident_graph import GenericIncidentGraph
 from app.services.investigation_graph import InvestigationGraph
 from app.services.llm import OllamaService
@@ -372,3 +373,55 @@ def test_prometheus_exports_mcp_a2a_and_routing_metrics() -> None:
     assert "incident_domain_routing_total" in metrics_text
     assert "incident_evidence_items_total" in metrics_text
     assert "incident_automated_steps_total" in metrics_text
+
+
+def test_cloud_a2a_provider_calls_configured_agent_endpoint(monkeypatch) -> None:
+    registry = LocalA2ARegistry()
+    monkeypatch.setattr(registry.settings, "a2a_provider", "cloud")
+    monkeypatch.setattr(
+        registry.settings,
+        "a2a_agent_urls",
+        {"sre_agent": "https://agents.example.com/sre/handoff"},
+    )
+    monkeypatch.setattr(registry.settings, "a2a_api_key", "test-a2a-key")
+
+    calls = []
+
+    class FakeA2AResponse:
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+        @staticmethod
+        def json() -> dict:
+            return {
+                "source_agent": "pytest_router",
+                "target_agent": "sre_agent",
+                "task_type": "triage_incident",
+                "domain": "production",
+                "status": "ok",
+                "summary": "Remote SRE agent completed cloud A2A triage.",
+                "result": {"provider": "remote"},
+                "metrics": {"latency_source": "mock"},
+                "duration_ms": 42.0,
+            }
+
+    def fake_post(url, headers, json, timeout):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeA2AResponse()
+
+    monkeypatch.setattr("app.services.a2a.httpx.post", fake_post)
+
+    result = registry.handoff(
+        AgentHandoffRequest(
+            source_agent="pytest_router",
+            target_agent="sre_agent",
+            task_type="triage_incident",
+            incident=load_sample_incident(),
+        )
+    )
+
+    assert result.status == "ok"
+    assert result.metrics["cost_mode"] == "cloud_a2a_message"
+    assert calls[0]["url"] == "https://agents.example.com/sre/handoff"
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-a2a-key"

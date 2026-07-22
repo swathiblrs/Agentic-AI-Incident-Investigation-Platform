@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import time
 
+import httpx
+
+from app.core.config import get_settings
 from app.core.telemetry import (
     A2A_HANDOFF_DURATION,
     A2A_HANDOFFS_TOTAL,
@@ -24,7 +27,9 @@ class LocalA2ARegistry:
     """Capability-based local agent-to-agent handoff registry."""
 
     def __init__(self) -> None:
+        self.settings = get_settings()
         self._agents = self._build_manifests()
+        self._apply_cloud_endpoints()
         for agent in self._agents.values():
             ACTIVE_AGENT_CAPABILITIES.labels(agent=agent.name, domain=agent.domain.value).set(len(agent.capabilities))
         self.messages_per_investigation = 3
@@ -77,6 +82,10 @@ class LocalA2ARegistry:
                 summary="Target agent is not registered.",
                 duration_ms=round(duration * 1000, 3),
             )
+
+        mode = self._mode_for(agent.name)
+        if mode == "cloud":
+            return self._handoff_cloud(request, agent, started)
 
         evidence = self._evidence_for(agent, request)
         actions = self._actions_for(agent, request)
@@ -177,6 +186,8 @@ class LocalA2ARegistry:
             "advertised_capabilities": sum(len(agent.capabilities) for agent in self._agents.values()),
             "operational_workflows": len({agent.domain for agent in self._agents.values()}),
             "a2a_messages_per_investigation": self.messages_per_investigation,
+            "a2a_provider": self.settings.a2a_provider,
+            "cloud_ready_a2a_agents": len(self.settings.a2a_agent_urls),
         }
 
     @staticmethod
@@ -234,6 +245,128 @@ class LocalA2ARegistry:
             IncidentDomain.it: "soc_agent",
         }
         return self._agents[mapping[domain]]
+
+    def provider(self) -> str:
+        return self.settings.a2a_provider
+
+    def _mode_for(self, agent_name: str) -> str:
+        configured = bool(self.settings.a2a_agent_urls.get(agent_name))
+        if self.settings.a2a_provider == "cloud":
+            return "cloud" if configured else "local"
+        if self.settings.a2a_provider == "auto" and configured:
+            return "cloud"
+        return "local"
+
+    def _apply_cloud_endpoints(self) -> None:
+        for agent_name, endpoint in self.settings.a2a_agent_urls.items():
+            agent = self._agents.get(agent_name)
+            if agent is not None:
+                agent.endpoint = endpoint
+                agent.mode = "cloud_ready"
+
+    def _handoff_cloud(
+        self,
+        request: AgentHandoffRequest,
+        agent: AgentManifest,
+        started: float,
+    ) -> AgentHandoffResponse:
+        endpoint = self.settings.a2a_agent_urls.get(agent.name)
+        if not endpoint:
+            return self._cloud_fallback(request, agent, started, "Cloud endpoint is not configured.")
+
+        headers = {"Content-Type": "application/json"}
+        if self.settings.a2a_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.a2a_api_key}"
+
+        last_error = ""
+        for attempt in range(max(1, self.settings.a2a_max_retries)):
+            try:
+                response = httpx.post(
+                    endpoint,
+                    headers=headers,
+                    json=request.model_dump(mode="json"),
+                    timeout=self.settings.a2a_timeout_seconds,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                result = AgentHandoffResponse.model_validate(payload)
+                self._record_cloud_metrics(request, agent, started, "ok")
+                result.metrics["cost_mode"] = "cloud_a2a_message"
+                result.metrics["provider"] = "http"
+                return result
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = str(exc)
+                if attempt < self.settings.a2a_max_retries - 1:
+                    time.sleep(0.25 * (attempt + 1))
+
+        if self.settings.a2a_provider == "auto":
+            fallback = self._handoff_local_after_cloud_failure(request, agent, started)
+            fallback.metrics["cloud_error"] = last_error
+            return fallback
+        return self._cloud_fallback(request, agent, started, last_error)
+
+    def _handoff_local_after_cloud_failure(
+        self,
+        request: AgentHandoffRequest,
+        agent: AgentManifest,
+        started: float,
+    ) -> AgentHandoffResponse:
+        original_provider = self.settings.a2a_provider
+        self.settings.a2a_provider = "local"
+        try:
+            result = self.handoff(request)
+            result.metrics["provider"] = "local_fallback_after_cloud_error"
+            return result
+        finally:
+            self.settings.a2a_provider = original_provider
+
+    def _cloud_fallback(
+        self,
+        request: AgentHandoffRequest,
+        agent: AgentManifest,
+        started: float,
+        error: str,
+    ) -> AgentHandoffResponse:
+        duration = time.perf_counter() - started
+        self._record_cloud_metrics(request, agent, started, "error")
+        return AgentHandoffResponse(
+            parent_message_id=request.parent_message_id,
+            source_agent=request.source_agent,
+            target_agent=agent.name,
+            task_type=request.task_type,
+            domain=agent.domain,
+            status="error",
+            summary=f"Cloud A2A call failed for {agent.name}.",
+            result={"error": error, "provider": "http"},
+            metrics={"cost_mode": "cloud_a2a_message", "provider": "http", "error": error},
+            duration_ms=round(duration * 1000, 3),
+        )
+
+    def _record_cloud_metrics(
+        self,
+        request: AgentHandoffRequest,
+        agent: AgentManifest,
+        started: float,
+        status: str,
+    ) -> None:
+        duration = time.perf_counter() - started
+        A2A_HANDOFFS_TOTAL.labels(
+            source_agent=request.source_agent,
+            target_agent=agent.name,
+            domain=agent.domain.value,
+            status=status,
+        ).inc()
+        A2A_HANDOFF_DURATION.labels(
+            source_agent=request.source_agent,
+            target_agent=agent.name,
+            domain=agent.domain.value,
+        ).observe(duration)
+        A2A_MESSAGES_TOTAL.labels(
+            source_agent=request.source_agent,
+            target_agent=agent.name,
+            task_type=request.task_type,
+            status=status,
+        ).inc()
 
     @staticmethod
     def _evidence_for(agent: AgentManifest, request: AgentHandoffRequest) -> list[EvidenceItem]:

@@ -71,7 +71,7 @@ AUTOMATED_STEPS_TOTAL = Counter(
 
 ACTIVE_AGENT_CAPABILITIES = Gauge(
     "incident_active_agent_capabilities",
-    "Number of advertised local A2A agent capabilities.",
+    "Number of advertised A2A agent capabilities.",
     ["agent", "domain"],
 )
 

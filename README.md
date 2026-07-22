@@ -1,6 +1,6 @@
 # 🚨 AI Incident Investigation Platform
 
-A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG), OpenAI-powered reasoning and embeddings, MCP-style tool access, and local A2A task/result exchange.
+A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG), OpenAI-powered reasoning and embeddings, MCP support, and A2A task/result execution.
 
 ## 🌟 Why this project exists
 
@@ -28,7 +28,7 @@ High level workflow:
 Incident alert, logs, metrics, or SIEM events  
 -> LangGraph orchestration  
 -> A2A-style capability routing selects the specialist domain agent
--> MCP-style tools collect local or integration-ready evidence
+-> MCP tools collect integration-ready evidence
 -> RAG pipeline retrieves relevant runbooks, playbooks, incidents, and ATT&CK notes  
 -> Domain-specific investigation nodes reason over evidence and references  
 -> Structured incident response report
@@ -37,8 +37,8 @@ Core stack:
 
 - FastAPI for API backend
 - LangGraph for multi-step investigation workflows
-- MCP-style local tool registry for evidence and action tools
-- A2A-style local specialist agent registry for capability-based task/result exchange
+- MCP tool registry for evidence and action tools
+- A2A specialist agent registry for task/result execution
 - OpenAI models for LLM reasoning and embeddings
 - Automatic local Ollama fallback when no OpenAI API key is configured
 - Optional Anthropic-compatible LLM provider switching
@@ -70,7 +70,7 @@ Core stack:
 - Security-specific workflow for alert triage, threat enrichment, evidence collection, and remediation
 - Generic incident workflow for production, cloud, data, and IT incidents
 - Conditional domain routing through SOC, SRE, cloud, data, and IT graph paths
-- A2A-style specialist communication through local agent manifests and FastAPI task/result endpoints
+- A2A specialist communication through agent manifests and FastAPI task/result endpoints
 - Low-risk incidents can skip live LLM reasoning; high-risk incidents add escalation recommendations
 - Domain-specific status or verdict generation
 - RAG-grounded reasoning before response recommendations
@@ -104,8 +104,8 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - Optional LangGraph checkpoint persistence using `AsyncPostgresSaver`
 - Production-style integration registry for Splunk, Sentinel, Okta, CrowdStrike, Datadog, Loki, CloudWatch, Jira, ServiceNow, and Slack
 - Integration catalog, readiness checks, required metadata validation, and local-safe evidence previews
-- MCP-style tool manifest endpoint and structured local tool-call endpoint
-- A2A-style agent manifest endpoint, local handoff endpoint, and multi-message exchange endpoint
+- MCP tool manifest endpoint and structured tool-call endpoint
+- A2A agent manifest endpoint, handoff endpoint, and multi-message exchange endpoint
 - Postmortem generation from stored reports
 - Typed request and response models
 - Health and metrics endpoints
@@ -135,13 +135,12 @@ This project uses a RAG-style pipeline to ground investigations in operational k
 - AWS-ready deployment templates under `infra/aws/`
 - API dashboard for submitting incidents, ingesting runbooks, viewing reports, generating postmortems, and validating integrations
 
-## 🔌 MCP + A2A Local Architecture
+## 🔌 MCP + A2A Architecture
 
-The project includes MCP-style and A2A-style architecture without requiring paid services.
+The project includes MCP support and A2A task/result execution for tool-connected, multi-agent incident investigation.
 
 - MCP tools expose discoverable manifests and a single structured execution path
-- Tools run in `free_local_dry_run` mode unless real vendor credentials are added later
-- Local tools include runbook search, security log search, observability query, identity event inspection, ticket dry-run, and escalation dry-run
+- MCP tools include runbook search, security log search, observability query, identity event inspection, ticket creation, and escalation workflows
 - A2A agents expose capability manifests for SOC, SRE, cloud, data, and IT workflows
 - LangGraph routes incidents to the correct primary specialist agent
 - The primary specialist agent sends a task to a peer agent and receives a result back

@@ -323,6 +323,8 @@ class PlatformMetricsSnapshot(BaseModel):
     a2a_agents_available: int
     advertised_capabilities: int
     a2a_messages_per_investigation: int
+    a2a_provider: str
+    cloud_ready_a2a_agents: int
     integration_ready_tools: int
     local_tool_calls_supported: int
     operational_workflows: int

@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +53,11 @@ class Settings(BaseSettings):
     evaluation_provider: str = "auto"
     evaluation_model: str = "gpt-4o-mini"
     evaluation_max_retries: int = 2
+    a2a_provider: str = "local"
+    a2a_api_key: str = ""
+    a2a_agent_urls: dict[str, str] = Field(default_factory=dict)
+    a2a_timeout_seconds: float = 10.0
+    a2a_max_retries: int = 2
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

@@ -528,6 +528,8 @@ checkout-api failed request status=503 route=/checkout</textarea>
               document.getElementById('platformMetricList').innerHTML = [
                 ['MCP tools', metrics.mcp_tools_available],
                 ['A2A agents', metrics.a2a_agents_available],
+                ['A2A provider', metrics.a2a_provider],
+                ['Cloud-ready A2A agents', metrics.cloud_ready_a2a_agents],
                 ['A2A messages/investigation', metrics.a2a_messages_per_investigation],
                 ['Capabilities', metrics.advertised_capabilities],
                 ['Integration-ready tools', metrics.integration_ready_tools],
