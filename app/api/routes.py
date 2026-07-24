@@ -352,7 +352,7 @@ def dashboard() -> HTMLResponse:
         <body>
           <header>
             <div>
-              <h1>🚨 AI Incident Investigation Platform</h1>
+              <h1>🚨 Agentic AI Incident Investigation Platform</h1>
               <p>Investigate incidents, ingest knowledge, inspect reports, and validate connector readiness.</p>
             </div>
             <div>

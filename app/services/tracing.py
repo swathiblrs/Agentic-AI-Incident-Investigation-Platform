@@ -34,7 +34,7 @@ class LangfuseTracer:
                             "risk_score": report.risk_score,
                             "summary": report.executive_summary,
                         },
-                        "metadata": {"source": "ai-security-alert-investigation-agent"},
+                        "metadata": {"source": "agentic-ai-incident-investigation-platform"},
                     },
                 }
             ]

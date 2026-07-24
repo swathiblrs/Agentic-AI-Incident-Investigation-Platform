@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "AI Security Alert Investigation Agent"
+    app_name: str = "Agentic AI Incident Investigation Platform"
     app_env: str = "local"
     rag_top_k: int = 5
     risk_threshold_high: int = 75

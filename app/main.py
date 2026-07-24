@@ -9,7 +9,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        description="SOC-focused AI agent for alert triage, RAG-grounded investigation, and remediation.",
+        description="Agentic AI platform for multi-domain incident triage, RAG-grounded investigation, and remediation.",
     )
     app.include_router(router, prefix="/api")
     return app

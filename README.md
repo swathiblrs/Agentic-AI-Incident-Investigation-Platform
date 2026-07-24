@@ -1,6 +1,6 @@
-# 🚨 AI Incident Investigation Platform
+# 🚨 Agentic AI Incident Investigation Platform
 
-A production-ready multi-domain incident investigation system that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG), OpenAI-powered reasoning and embeddings, MCP support, and A2A task/result execution.
+A production-ready agentic incident investigation platform that helps security, SRE, cloud, data, and IT teams investigate alerts, logs, metrics, traces, runbooks, and historical incidents using LangGraph + Retrieval Augmented Generation (RAG), OpenAI-powered reasoning and embeddings, MCP support, and A2A task/result execution.
 
 ## 🌟 Why this project exists
 
@@ -23,7 +23,7 @@ The platform can:
 
 ## 🏗️ Architecture Overview
 
-![AI Incident Investigation Platform Architecture](docs/architecture.png)
+![Agentic AI Incident Investigation Platform Architecture](docs/architecture.png)
 
 High level workflow:
 

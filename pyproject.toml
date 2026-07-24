@@ -1,7 +1,7 @@
 [project]
-name = "ai-security-alert-investigation-agent"
+name = "agentic-ai-incident-investigation-platform"
 version = "0.1.0"
-description = "AI incident response agent for SOC alert triage, evidence collection, threat enrichment, and remediation guidance."
+description = "Agentic AI incident investigation platform for multi-domain triage, evidence collection, RAG-grounded reasoning, and remediation guidance."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

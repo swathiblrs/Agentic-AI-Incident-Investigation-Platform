@@ -1,1 +1,1 @@
-"""AI Security Alert Investigation Agent."""
+"""Agentic AI Incident Investigation Platform."""
